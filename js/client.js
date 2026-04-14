@@ -1,11 +1,10 @@
 /* =============================================================
    Excel Preview Power-Up — client.js
    Architecture:
-   1. On init, connector fetches the REST API token and caches it
-      in Power-Up storage (board/private/authToken) so section
-      iframes can retrieve it without calling t.getRestApi()
-   2. attachment-sections: shows Excel file list in section.html
-   3. card-buttons: fallback to open preview directly
+   - attachment-sections: async handler gets REST API token,
+     passes it to section.html via URL param ?auth=TOKEN
+   - section.html reads token from URL params (no Trello storage needed)
+   - card-buttons: alternative entry point for direct preview
    ============================================================= */
 var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
 var APP_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
@@ -25,52 +24,39 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-/* Get token — first try cache, then REST API */
+/* Get token via REST API (works from connector context) */
 function getToken(t) {
-  return t.get('board', 'private', 'authToken').then(function (cached) {
-    if (cached) return cached;
-    return t.getRestApi().then(function (api) {
-      return api.isAuthorized().then(function (authorized) {
-        if (!authorized) {
-          return api.authorize({ scope: 'read' }).then(function () {
-            return api.getToken();
-          });
-        }
-        return api.getToken();
-      });
-    }).then(function (token) {
-      if (token) {
-        // Cache for 24h
-        return t.set('board', 'private', 'authToken', token).then(function () {
-          return token;
+  return t.getRestApi().then(function (api) {
+    return api.isAuthorized().then(function (authorized) {
+      if (!authorized) {
+        return api.authorize({ scope: 'read' }).then(function () {
+          return api.getToken();
         });
       }
-      return token;
+      return api.getToken();
     });
   });
 }
 
-function downloadAttachment(t, file) {
-  return getToken(t).then(function (token) {
-    var url = file.url;
-    url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
-    var sep = url.indexOf('?') >= 0 ? '&' : '?';
-    var fetchUrl = url + sep + 'token=' + encodeURIComponent(token) + '&key=' + APP_KEY;
-    return fetch(fetchUrl, { credentials: 'omit' }).then(function (res) {
-      if (res.ok) return res.arrayBuffer();
-      // Fallback: get fresh URL from REST API
-      return t.card('id').then(function (card) {
-        var apiUrl = 'https://api.trello.com/1/cards/' + card.id +
-          '/attachments/' + file.id +
-          '?key=' + APP_KEY + '&token=' + encodeURIComponent(token);
-        return fetch(apiUrl).then(function (r) { return r.json(); }).then(function (att) {
-          var dlUrl = (att.url || file.url);
-          var sep2 = dlUrl.indexOf('?') >= 0 ? '&' : '?';
-          return fetch(dlUrl + sep2 + 'token=' + encodeURIComponent(token), { credentials: 'omit' });
-        }).then(function (r) {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return r.arrayBuffer();
-        });
+function downloadAttachment(t, file, token) {
+  var url = file.url;
+  url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
+  var sep = url.indexOf('?') >= 0 ? '&' : '?';
+  var fetchUrl = url + sep + 'token=' + encodeURIComponent(token) + '&key=' + APP_KEY;
+  return fetch(fetchUrl, { credentials: 'omit' }).then(function (res) {
+    if (res.ok) return res.arrayBuffer();
+    /* Fallback: get fresh URL from REST API */
+    return t.card('id').then(function (card) {
+      var apiUrl = 'https://api.trello.com/1/cards/' + card.id +
+        '/attachments/' + file.id +
+        '?key=' + APP_KEY + '&token=' + encodeURIComponent(token);
+      return fetch(apiUrl).then(function (r) { return r.json(); }).then(function (att) {
+        var dlUrl = (att.url || file.url);
+        var sep2 = dlUrl.indexOf('?') >= 0 ? '&' : '?';
+        return fetch(dlUrl + sep2 + 'token=' + encodeURIComponent(token), { credentials: 'omit' });
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
       });
     });
   });
@@ -84,13 +70,15 @@ function openPreview(t, file) {
   }).then(function () {
     return new Promise(function (resolve) { setTimeout(resolve, 50); });
   }).then(function () {
-    return downloadAttachment(t, file);
-  }).then(function (buffer) {
-    var base64 = arrayBufferToBase64(buffer);
-    return t.set('card', 'private', 'previewData', {
-      base64: base64,
-      name: file.name,
-      ts: Date.now()
+    return getToken(t);
+  }).then(function (token) {
+    return downloadAttachment(t, file, token).then(function (buffer) {
+      var base64 = arrayBufferToBase64(buffer);
+      return t.set('card', 'private', 'previewData', {
+        base64: base64,
+        name: file.name,
+        ts: Date.now()
+      });
     });
   }).then(function () {
     t.closePopup();
@@ -111,24 +99,39 @@ function openPreview(t, file) {
 }
 
 TrelloPowerUp.initialize({
+  /* attachment-sections: async to get token and pass it to section.html */
   'attachment-sections': function (t, options) {
     var claimed = (options.entries || []).filter(function (att) {
       return isExcel(att.name);
     });
     if (!claimed.length) return [];
-    /* Pre-cache the token so section.html can read it */
-    getToken(t).catch(function () {});
-    return [{
-      id: 'excel-preview-section',
-      claimed: claimed,
-      icon: POWERUP_BASE_URL + '/icons/icon.svg',
-      title: 'Excel Previews',
-      content: {
-        type: 'iframe',
-        url: t.signUrl(POWERUP_BASE_URL + '/section.html'),
-        height: 48 * claimed.length + 20
-      }
-    }];
+    /* Get token in connector context where t.getRestApi() works */
+    return getToken(t).then(function (token) {
+      return [{
+        id: 'excel-preview-section',
+        claimed: claimed,
+        icon: POWERUP_BASE_URL + '/icons/icon.svg',
+        title: 'Excel Previews',
+        content: {
+          type: 'iframe',
+          url: t.signUrl(POWERUP_BASE_URL + '/section.html') + '&auth=' + encodeURIComponent(token),
+          height: 48 * claimed.length + 20
+        }
+      }];
+    }).catch(function () {
+      /* If token unavailable, show section without token (will prompt on click) */
+      return [{
+        id: 'excel-preview-section',
+        claimed: claimed,
+        icon: POWERUP_BASE_URL + '/icons/icon.svg',
+        title: 'Excel Previews',
+        content: {
+          type: 'iframe',
+          url: t.signUrl(POWERUP_BASE_URL + '/section.html'),
+          height: 48 * claimed.length + 20
+        }
+      }];
+    });
   },
 
   'card-buttons': function (t) {
