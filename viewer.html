@@ -38,27 +38,26 @@
     appName: 'Excel Preview'
   });
   var params = new URLSearchParams(window.location.search);
-  var dataKey  = params.get('dataKey')  || '';
-  var fileName = params.get('name')     || 'Excel file';
-
+  var dataKey = params.get('dataKey') || '';
+  var fileName = params.get('name') || 'Excel file';
   document.getElementById('file-name-label').textContent = fileName;
   document.title = fileName;
 
-  var workbook       = null;
-  var sheetTabsEl    = document.getElementById('sheet-tabs');
-  var loadingState   = document.getElementById('loading-state');
-  var errorState     = document.getElementById('error-state');
-  var errorMessage   = document.getElementById('error-message');
-  var retryBtn       = document.getElementById('retry-btn');
-  var tableWrapper   = document.getElementById('table-wrapper');
+  var workbook = null;
+  var sheetTabsEl = document.getElementById('sheet-tabs');
+  var loadingState = document.getElementById('loading-state');
+  var errorState = document.getElementById('error-state');
+  var errorMessage = document.getElementById('error-message');
+  var retryBtn = document.getElementById('retry-btn');
+  var tableWrapper = document.getElementById('table-wrapper');
   var tableContainer = document.getElementById('table-container');
-  var closeBtn       = document.getElementById('close-btn');
+  var closeBtn = document.getElementById('close-btn');
 
   function show(el) { el.classList.remove('hidden'); }
   function hide(el) { el.classList.add('hidden'); }
   function showLoading() { show(loadingState); hide(errorState); hide(tableWrapper); }
   function showError(msg) { hide(loadingState); errorMessage.textContent = msg; show(errorState); hide(tableWrapper); }
-  function showTable()   { hide(loadingState); hide(errorState); show(tableWrapper); }
+  function showTable() { hide(loadingState); hide(errorState); show(tableWrapper); }
 
   function base64ToArrayBuffer(b64) {
     var binary = atob(b64);
@@ -109,34 +108,44 @@
     sheetTabsEl.innerHTML = '';
     tableContainer.innerHTML = '';
 
-    if (!dataKey) {
-      showError('No data key provided. Please close and re-open the preview.');
-      return;
+    /* Strategy 1: Read from localStorage (set by section.html "Open preview" button) */
+    if (dataKey) {
+      var b64 = localStorage.getItem(dataKey);
+      if (b64) {
+        try {
+          var buffer = base64ToArrayBuffer(b64);
+          parseAndRender(buffer);
+          localStorage.removeItem(dataKey);
+          return;
+        } catch (err) {
+          showError(err.message || 'Could not parse the Excel file.');
+          return;
+        }
+      }
     }
 
-    /* Read the base64 data from localStorage (set by section.html before opening modal).
-       localStorage is shared across all iframes of the same origin. */
-    var b64 = localStorage.getItem(dataKey);
-    if (!b64) {
-      showError('File data not found. Please close and re-open the preview.');
-      return;
-    }
-
-    try {
-      var buffer = base64ToArrayBuffer(b64);
-      parseAndRender(buffer);
-      /* Clean up to free memory */
-      localStorage.removeItem(dataKey);
-    } catch (err) {
-      console.error('[ExcelPreview] parse error:', err);
-      showError(err.message || 'Could not parse the Excel file.');
-    }
+    /* Strategy 2: Read from Trello card storage (set by card-button flow) */
+    t.get('card', 'private', 'previewData').then(function (data) {
+      if (!data || !data.base64) {
+        showError('File data not found. Please close and try the preview again.');
+        return;
+      }
+      try {
+        var buffer = base64ToArrayBuffer(data.base64);
+        parseAndRender(buffer);
+        /* Clean up */
+        t.remove('card', 'private', 'previewData').catch(function () {});
+      } catch (err) {
+        showError(err.message || 'Could not parse the Excel file.');
+      }
+    }).catch(function (err) {
+      showError('Could not load file data: ' + (err.message || 'unknown error'));
+    });
   }
 
   closeBtn.addEventListener('click', function () {
     t.closeModal();
   });
-
   retryBtn.addEventListener('click', function () {
     t.closeModal();
   });
