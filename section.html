@@ -33,7 +33,13 @@
     return btoa(binary);
   }
 
+  function setStatus(btn, msg, disabled) {
+    btn.textContent = msg;
+    btn.disabled = !!disabled;
+  }
+
   function doFetch(file, btn, token) {
+    setStatus(btn, 'Downloading...', true);
     var url = file.url;
     url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
     var sep = url.indexOf('?') >= 0 ? '&' : '?';
@@ -47,6 +53,7 @@
       .then(function (buffer) {
         var key = 'excel_preview_' + file.id;
         localStorage.setItem(key, arrayBufferToBase64(buffer));
+        setStatus(btn, 'Open preview', false);
         t.modal({
           url: POWERUP_BASE_URL + '/viewer.html'
             + '?dataKey=' + encodeURIComponent(key)
@@ -55,59 +62,30 @@
           height: 800,
           title: file.name
         });
-        btn.disabled = false;
-        btn.textContent = 'Open preview';
       })
       .catch(function (err) {
-        btn.disabled = false;
-        btn.textContent = 'Open preview';
-        alert('Fetch error: ' + err.message);
+        setStatus(btn, 'Error: ' + err.message, false);
+        setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
       });
   }
 
   function openPreview(file, btn) {
-    btn.disabled = true;
-    btn.textContent = 'Loading...';
+    setStatus(btn, 'Loading...', true);
 
-    var timeoutId = setTimeout(function () {
-      btn.disabled = false;
-      btn.textContent = 'Open preview';
-      alert('Timeout: t.getRestApi() did not respond within 10 seconds');
-    }, 10000);
-
-    t.getRestApi()
-      .then(function (api) {
-        return api.getToken();
-      })
+    /* Read token cached by connector in board/private/authToken */
+    t.get('board', 'private', 'authToken')
       .then(function (token) {
-        clearTimeout(timeoutId);
-        if (!token) {
-          btn.disabled = false;
-          btn.textContent = 'Authorize';
-          // Need to authorize
-          t.getRestApi().then(function (api) {
-            return api.authorize({ scope: 'read' });
-          }).then(function () {
-            return t.getRestApi();
-          }).then(function (api) {
-            return api.getToken();
-          }).then(function (tok) {
-            if (tok) doFetch(file, btn, tok);
-            else alert('Authorization failed');
-          }).catch(function (err) {
-            btn.disabled = false;
-            btn.textContent = 'Open preview';
-            alert('Auth error: ' + err.message);
-          });
-          return;
+        if (token) {
+          doFetch(file, btn, token);
+        } else {
+          /* Token not cached yet — show message to use card button */
+          setStatus(btn, 'Use card button first', false);
+          setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
         }
-        doFetch(file, btn, token);
       })
       .catch(function (err) {
-        clearTimeout(timeoutId);
-        btn.disabled = false;
-        btn.textContent = 'Open preview';
-        alert('getRestApi error: ' + err.message);
+        setStatus(btn, 'Auth error', false);
+        setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
       });
   }
 
