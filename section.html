@@ -14,6 +14,10 @@
   var APP_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
   var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
 
+  /* Read auth token passed via URL params by the connector */
+  var params = new URLSearchParams(window.location.search);
+  var AUTH_TOKEN = params.get('auth') || '';
+
   var t = TrelloPowerUp.iframe({
     appKey: APP_KEY,
     appName: 'Excel Preview'
@@ -64,29 +68,20 @@
         });
       })
       .catch(function (err) {
-        setStatus(btn, 'Error: ' + err.message, false);
-        setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
+        setStatus(btn, 'Error: ' + err.message.slice(0, 20), false);
+        setTimeout(function () { setStatus(btn, 'Open preview', false); }, 4000);
       });
   }
 
   function openPreview(file, btn) {
+    if (!AUTH_TOKEN) {
+      /* No token in URL — section was rendered without auth */
+      setStatus(btn, 'Reload card to authenticate', false);
+      setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
+      return;
+    }
     setStatus(btn, 'Loading...', true);
-
-    /* Read token cached by connector in board/private/authToken */
-    t.get('board', 'private', 'authToken')
-      .then(function (token) {
-        if (token) {
-          doFetch(file, btn, token);
-        } else {
-          /* Token not cached yet — show message to use card button */
-          setStatus(btn, 'Use card button first', false);
-          setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
-        }
-      })
-      .catch(function (err) {
-        setStatus(btn, 'Auth error', false);
-        setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
-      });
+    doFetch(file, btn, AUTH_TOKEN);
   }
 
   t.render(function () {
