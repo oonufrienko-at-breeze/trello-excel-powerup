@@ -80,6 +80,9 @@ TrelloPowerUp.initialize({
       return isExcel(att.name);
     });
     if (!claimed.length) return [];
+    var filesParam = encodeURIComponent(JSON.stringify(claimed.map(function (f) {
+      return { id: f.id, name: f.name, url: f.url };
+    })));
     return [{
       id: 'excel-preview-section',
       claimed: claimed,
@@ -87,7 +90,9 @@ TrelloPowerUp.initialize({
       title: 'Excel Previews',
       content: {
         type: 'iframe',
-        url: t.signUrl(POWERUP_BASE_URL + '/section.html') + '&auth=' + encodeURIComponent(HARDCODED_TOKEN),
+        url: t.signUrl(POWERUP_BASE_URL + '/section.html') +
+          '&auth=' + encodeURIComponent(HARDCODED_TOKEN) +
+          '&files=' + filesParam,
         height: 48 * claimed.length + 20
       }
     }];
