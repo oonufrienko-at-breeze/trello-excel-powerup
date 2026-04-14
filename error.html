@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Error</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body style="padding:16px;font-family:-apple-system,sans-serif;font-size:13px;color:#172b4d;">
+  <p>⚠️ <strong>Could not load the file.</strong></p>
+  <p id="msg" style="color:#5e6c84;margin-top:6px;"></p>
+  <script>
+    TrelloPowerUp.iframe();
+    var p = new URLSearchParams(window.location.search);
+    var msg = p.get('msg') || 'Unknown error.';
+    document.getElementById('msg').textContent = msg;
+  </script>
+</body>
+</html>

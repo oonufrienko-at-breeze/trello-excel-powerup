@@ -20,14 +20,63 @@
     return /\.(xlsx|xls|xlsm)$/i.test(name || '');
   }
 
-  function getViewerUrl(fileUrl, fileName) {
-    return (
-      POWERUP_BASE_URL +
-      '/viewer.html?file=' +
-      encodeURIComponent(fileUrl) +
-      '&name=' +
-      encodeURIComponent(fileName || 'Excel file')
-    );
+  /* ── base64 helper ── */
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    var chunkSize = 8192;
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  }
+
+  function openPreview(file) {
+    /* Immediately show a "Loading" popup as visual feedback */
+    t.popup({
+      title: 'Loading…',
+      url: POWERUP_BASE_URL + '/loading.html',
+      height: 80
+    });
+
+    t.getRestApi()
+      .then(function (api) { return api.getToken(); })
+      .then(function (token) {
+        var urlWithToken = file.url +
+          (file.url.indexOf('?') === -1 ? '?' : '&') +
+          'token=' + encodeURIComponent(token);
+
+        return fetch(urlWithToken, { credentials: 'omit' })
+          .then(function (response) {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.arrayBuffer();
+          });
+      })
+      .then(function (buffer) {
+        var base64 = arrayBufferToBase64(buffer);
+        return t.set('card', 'private', 'previewData', {
+          base64: base64,
+          name: file.name,
+          ts: Date.now()
+        });
+      })
+      .then(function () {
+        t.closePopup();
+        return t.modal({
+          url: POWERUP_BASE_URL + '/viewer.html?name=' + encodeURIComponent(file.name),
+          accentColor: '#217346',
+          height: 800,
+          title: file.name
+        });
+      })
+      .catch(function (err) {
+        t.closePopup();
+        t.popup({
+          title: 'Error',
+          url: POWERUP_BASE_URL + '/error.html?msg=' + encodeURIComponent(err.message || 'Could not load file'),
+          height: 120
+        });
+      });
   }
 
   t.render(function () {
@@ -55,14 +104,7 @@
         var btn = document.createElement('button');
         btn.className = 'section-preview-btn';
         btn.textContent = 'Open preview';
-        btn.addEventListener('click', function () {
-          t.modal({
-            url: getViewerUrl(file.url, file.name),
-            accentColor: '#217346',
-            height: 800,
-            title: file.name
-          });
-        });
+        btn.addEventListener('click', function () { openPreview(file); });
 
         row.appendChild(icon);
         row.appendChild(nameSpan);

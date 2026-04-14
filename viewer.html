@@ -27,7 +27,7 @@
   <main class="viewer-main">
     <div id="loading-state" class="state-box">
       <div class="spinner"></div>
-      <p>Loading Excel file…</p>
+      <p>Rendering spreadsheet…</p>
     </div>
 
     <div id="error-state" class="state-box hidden">
@@ -43,7 +43,12 @@
 
 <script>
 /* =============================================================
-   viewer.js — inline
+   viewer.html — inline script
+
+   FIX: No longer does a direct fetch() of the Trello attachment URL.
+   Instead, reads pre-fetched base64 file data from Trello Power-Up
+   card storage (t.get 'card','private','previewData'), which was
+   stored by client.js using an authorized token — no CORS issues.
    ============================================================= */
 (function () {
   'use strict';
@@ -62,10 +67,9 @@
   var tableContainer = document.getElementById('table-container');
   var closeBtn       = document.getElementById('close-btn');
 
-  /* ── Parse URL params ── */
+  /* ── File name from URL param (for title only) ── */
   var params   = new URLSearchParams(window.location.search);
-  var fileUrl  = params.get('file')  || '';
-  var fileName = params.get('name')  || 'Excel file';
+  var fileName = params.get('name') || 'Excel file';
 
   fileNameLabel.textContent = fileName;
   document.title = fileName;
@@ -74,8 +78,8 @@
   var workbook = null;
 
   /* ── UI helpers ── */
-  function show(el)  { el.classList.remove('hidden'); }
-  function hide(el)  { el.classList.add('hidden');    }
+  function show(el) { el.classList.remove('hidden'); }
+  function hide(el) { el.classList.add('hidden'); }
 
   function showLoading() {
     show(loadingState);
@@ -96,12 +100,21 @@
     show(tableWrapper);
   }
 
+  /* ── Convert base64 string → Uint8Array ── */
+  function base64ToUint8Array(b64) {
+    var binary = atob(b64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
   /* ── Render a specific sheet ── */
   function renderSheet(sheetName) {
     var ws = workbook.Sheets[sheetName];
     if (!ws) return;
 
-    /* Convert sheet to HTML table via SheetJS */
     var html = XLSX.utils.sheet_to_html(ws, {
       id: 'excel-table',
       editable: false
@@ -109,17 +122,13 @@
 
     tableContainer.innerHTML = html;
 
-    /* Basic styling tweaks to the generated table */
     var table = tableContainer.querySelector('table');
-    if (table) {
-      table.className = 'excel-table';
-    }
+    if (table) table.className = 'excel-table';
 
     showTable();
 
-    /* Update active tab */
-    var tabs = sheetTabsEl.querySelectorAll('.tab-btn');
-    tabs.forEach(function (btn) {
+    /* Update active tab highlight */
+    sheetTabsEl.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.sheet === sheetName);
     });
   }
@@ -132,64 +141,80 @@
       btn.className = 'tab-btn' + (idx === 0 ? ' active' : '');
       btn.dataset.sheet = name;
       btn.textContent = name;
-      btn.addEventListener('click', function () {
-        renderSheet(name);
-      });
+      btn.addEventListener('click', function () { renderSheet(name); });
       sheetTabsEl.appendChild(btn);
     });
   }
 
-  /* ── Load & parse Excel file ── */
-  function loadFile() {
+  /* ── Main load function ── */
+  function loadFromStorage() {
     showLoading();
     workbook = null;
     sheetTabsEl.innerHTML = '';
     tableContainer.innerHTML = '';
 
-    if (!fileUrl) {
-      showError('No file URL provided.');
-      return;
-    }
-
-    fetch(fileUrl)
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error('HTTP ' + response.status + ' — ' + response.statusText);
+    /*
+      Read base64 file data stored by client.js via t.set().
+      client.js downloads the file using t.getRestApi() token
+      (no CORS restriction there), encodes to base64, and stores
+      it under key 'previewData' in card private scope.
+    */
+    t.get('card', 'private', 'previewData')
+      .then(function (data) {
+        if (!data || !data.base64) {
+          throw new Error(
+            'No file data found. Please close this window and click ' +
+            '"Excel Preview" again to reload the file.'
+          );
         }
-        return response.arrayBuffer();
-      })
-      .then(function (buffer) {
+
+        /* Update label with actual stored name if available */
+        if (data.name) {
+          fileNameLabel.textContent = data.name;
+          document.title = data.name;
+        }
+
+        /* Decode base64 → Uint8Array → SheetJS workbook */
+        var bytes;
         try {
-          workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+          bytes = base64ToUint8Array(data.base64);
         } catch (e) {
-          throw new Error('Could not parse file: ' + e.message);
+          throw new Error('Could not decode file data: ' + e.message);
+        }
+
+        try {
+          workbook = XLSX.read(bytes, { type: 'array' });
+        } catch (e) {
+          throw new Error('Could not parse Excel file: ' + e.message);
         }
 
         if (!workbook.SheetNames || !workbook.SheetNames.length) {
-          throw new Error('The file has no sheets.');
+          throw new Error('The file contains no sheets.');
         }
 
         buildTabs(workbook.SheetNames);
         renderSheet(workbook.SheetNames[0]);
       })
       .catch(function (err) {
-        console.error('[ExcelPreview] Load error:', err);
-        showError(err.message || 'Unknown error loading file.');
+        console.error('[ExcelPreview] Render error:', err);
+        showError(err.message || 'Unknown error.');
       });
   }
 
   /* ── Close modal ── */
   closeBtn.addEventListener('click', function () {
+    /* Clean up stored data to free card storage */
+    t.remove('card', 'private', 'previewData').catch(function () {});
     t.closeModal();
   });
 
-  /* ── Retry button ── */
+  /* ── Retry ── */
   retryBtn.addEventListener('click', function () {
-    loadFile();
+    loadFromStorage();
   });
 
   /* ── Start ── */
-  loadFile();
+  loadFromStorage();
 
 })();
 </script>
