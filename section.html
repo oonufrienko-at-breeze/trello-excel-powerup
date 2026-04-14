@@ -26,27 +26,23 @@
   function arrayBufferToBase64(buffer) {
     var bytes = new Uint8Array(buffer);
     var binary = '';
-    for (var i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    var chunkSize = 8192;
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
     }
     return btoa(binary);
   }
 
-  function fetchAndOpenPreview(file, btn, token) {
-    btn.disabled = true;
-    btn.textContent = 'Loading...';
-
+  function doFetch(file, btn, token) {
     var url = file.url;
-    // Ensure we use api.trello.com
     url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
-    // Append token as query param as fallback
     var sep = url.indexOf('?') >= 0 ? '&' : '?';
-    var fetchUrl = url + sep + 'token=' + token + '&key=' + APP_KEY;
+    var fetchUrl = url + sep + 'token=' + encodeURIComponent(token) + '&key=' + APP_KEY;
 
     fetch(fetchUrl, { credentials: 'omit' })
-      .then(function (response) {
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        return response.arrayBuffer();
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.arrayBuffer();
       })
       .then(function (buffer) {
         var key = 'excel_preview_' + file.id;
@@ -65,73 +61,53 @@
       .catch(function (err) {
         btn.disabled = false;
         btn.textContent = 'Open preview';
-        console.error('[ExcelPreview] fetch error:', err);
-        alert('Could not load preview: ' + (err.message || 'Unknown error'));
+        alert('Fetch error: ' + err.message);
       });
   }
 
-  function getTokenAndPreview(file, btn) {
+  function openPreview(file, btn) {
     btn.disabled = true;
     btn.textContent = 'Loading...';
 
-    // Try to get stored token first
-    t.get('member', 'private', 'token')
-      .then(function (token) {
-        if (token) {
-          fetchAndOpenPreview(file, btn, token);
-        } else {
-          // Need to authorize
-          btn.disabled = false;
-          btn.textContent = 'Open preview';
-          t.getRestApi()
-            .then(function (api) {
-              return api.authorize({ scope: 'read' });
-            })
-            .then(function () {
-              return t.getRestApi();
-            })
-            .then(function (api) {
-              return api.getToken();
-            })
-            .then(function (tok) {
-              if (tok) {
-                fetchAndOpenPreview(file, btn, tok);
-              } else {
-                alert('Could not get token. Please try again.');
-              }
-            })
-            .catch(function (err) {
-              btn.disabled = false;
-              btn.textContent = 'Open preview';
-              alert('Authorization failed: ' + (err.message || 'Please try again.'));
-            });
-        }
+    var timeoutId = setTimeout(function () {
+      btn.disabled = false;
+      btn.textContent = 'Open preview';
+      alert('Timeout: t.getRestApi() did not respond within 10 seconds');
+    }, 10000);
+
+    t.getRestApi()
+      .then(function (api) {
+        return api.getToken();
       })
-      .catch(function () {
-        // Fallback: use Rest API
-        t.getRestApi()
-          .then(function (api) {
-            return api.isAuthorized();
-          })
-          .then(function (authorized) {
-            if (authorized) {
-              return t.getRestApi().then(function (api) { return api.getToken(); });
-            } else {
-              return t.getRestApi()
-                .then(function (api) { return api.authorize({ scope: 'read' }); })
-                .then(function () { return t.getRestApi(); })
-                .then(function (api) { return api.getToken(); });
-            }
-          })
-          .then(function (tok) {
-            if (tok) fetchAndOpenPreview(file, btn, tok);
-            else alert('Could not get token.');
-          })
-          .catch(function (err) {
+      .then(function (token) {
+        clearTimeout(timeoutId);
+        if (!token) {
+          btn.disabled = false;
+          btn.textContent = 'Authorize';
+          // Need to authorize
+          t.getRestApi().then(function (api) {
+            return api.authorize({ scope: 'read' });
+          }).then(function () {
+            return t.getRestApi();
+          }).then(function (api) {
+            return api.getToken();
+          }).then(function (tok) {
+            if (tok) doFetch(file, btn, tok);
+            else alert('Authorization failed');
+          }).catch(function (err) {
             btn.disabled = false;
             btn.textContent = 'Open preview';
-            alert('Auth error: ' + (err.message || 'Please try again.'));
+            alert('Auth error: ' + err.message);
           });
+          return;
+        }
+        doFetch(file, btn, token);
+      })
+      .catch(function (err) {
+        clearTimeout(timeoutId);
+        btn.disabled = false;
+        btn.textContent = 'Open preview';
+        alert('getRestApi error: ' + err.message);
       });
   }
 
@@ -156,7 +132,7 @@
         btn.className = 'section-preview-btn';
         btn.textContent = 'Open preview';
         btn.addEventListener('click', function () {
-          getTokenAndPreview(file, btn);
+          openPreview(file, btn);
         });
         row.appendChild(icon);
         row.appendChild(nameSpan);
