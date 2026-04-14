@@ -24,7 +24,7 @@
     <div id="error-state" class="state-box hidden">
       <p class="error-icon">⚠️</p>
       <p id="error-message">Could not load file.</p>
-      <button id="retry-btn" class="retry-btn">Try again</button>
+      <button id="retry-btn" class="retry-btn">Close and try again</button>
     </div>
     <div id="table-wrapper" class="table-wrapper hidden">
       <div id="table-container" class="table-container"></div>
@@ -38,9 +38,8 @@
     appName: 'Excel Preview'
   });
   var params = new URLSearchParams(window.location.search);
-  var fileUrl  = params.get('fileUrl')  || '';
+  var dataKey  = params.get('dataKey')  || '';
   var fileName = params.get('name')     || 'Excel file';
-  var token    = params.get('token')    || '';
 
   document.getElementById('file-name-label').textContent = fileName;
   document.title = fileName;
@@ -60,6 +59,15 @@
   function showLoading() { show(loadingState); hide(errorState); hide(tableWrapper); }
   function showError(msg) { hide(loadingState); errorMessage.textContent = msg; show(errorState); hide(tableWrapper); }
   function showTable()   { hide(loadingState); hide(errorState); show(tableWrapper); }
+
+  function base64ToArrayBuffer(b64) {
+    var binary = atob(b64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
 
   function renderSheet(name) {
     var ws = workbook.Sheets[name];
@@ -95,53 +103,30 @@
     renderSheet(workbook.SheetNames[0]);
   }
 
-  function fetchWithToken(url, tok) {
-    var fetchUrl = url;
-    if (tok) {
-      fetchUrl += (url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(tok);
-    }
-    return fetch(fetchUrl, { credentials: 'omit' });
-  }
-
   function loadFile() {
     showLoading();
     workbook = null;
     sheetTabsEl.innerHTML = '';
     tableContainer.innerHTML = '';
 
-    if (!fileUrl) {
-      showError('No file URL provided.');
+    if (!dataKey) {
+      showError('No data key provided. Please close and re-open the preview.');
       return;
     }
 
-    if (token) {
-      /* Token was passed from section.html — use it directly */
-      fetchWithToken(fileUrl, token)
-        .then(function (response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          return response.arrayBuffer();
-        })
-        .then(function (buffer) {
-          parseAndRender(buffer);
-        })
-        .catch(function (err) {
-          console.error('[ExcelPreview] load error:', err);
-          showError(err.message || 'Unknown error');
-        });
-    } else {
-      /* Fallback: try to fetch without token (public attachments) */
-      fetch(fileUrl, { credentials: 'omit' })
-        .then(function (response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          return response.arrayBuffer();
-        })
-        .then(function (buffer) {
-          parseAndRender(buffer);
-        })
-        .catch(function (err) {
-          console.error('[ExcelPreview] load error (no token):', err);
-          showError('Could not load file. Please authorize the Power-Up and try again.');
-        });
+    /* Read the base64 data from sessionStorage (set by section.html before opening modal) */
+    var b64 = sessionStorage.getItem(dataKey);
+    if (!b64) {
+      showError('File data not found in session. Please close and re-open the preview.');
+      return;
+    }
+
+    try {
+      var buffer = base64ToArrayBuffer(b64);
+      parseAndRender(buffer);
+    } catch (err) {
+      console.error('[ExcelPreview] parse error:', err);
+      showError(err.message || 'Could not parse the Excel file.');
     }
   }
 
@@ -150,7 +135,7 @@
   });
 
   retryBtn.addEventListener('click', function () {
-    loadFile();
+    t.closeModal();
   });
 
   loadFile();
