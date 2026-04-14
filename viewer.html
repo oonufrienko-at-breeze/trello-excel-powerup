@@ -114,16 +114,19 @@
       return;
     }
 
-    /* Read the base64 data from sessionStorage (set by section.html before opening modal) */
-    var b64 = sessionStorage.getItem(dataKey);
+    /* Read the base64 data from localStorage (set by section.html before opening modal).
+       localStorage is shared across all iframes of the same origin. */
+    var b64 = localStorage.getItem(dataKey);
     if (!b64) {
-      showError('File data not found in session. Please close and re-open the preview.');
+      showError('File data not found. Please close and re-open the preview.');
       return;
     }
 
     try {
       var buffer = base64ToArrayBuffer(b64);
       parseAndRender(buffer);
+      /* Clean up to free memory */
+      localStorage.removeItem(dataKey);
     } catch (err) {
       console.error('[ExcelPreview] parse error:', err);
       showError(err.message || 'Could not parse the Excel file.');
