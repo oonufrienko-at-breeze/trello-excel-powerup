@@ -13,7 +13,7 @@
 
 <script>
 (function () {
-  var t = TrelloPowerUp.iframe();
+    var t = TrelloPowerUp.iframe({ appKey: 'eaa6d0d7c57218139af1b772bbd777cb', appName: 'Excel Preview' });
   var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var TRELLO_API_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
 
@@ -34,7 +34,7 @@
   function openPreview(file) {
     /* t.popup() requires a mouse event or el - not available here.
        Instead we show a loading state in the button, then open modal directly. */
-    return t.getRestApi({ key: TRELLO_API_KEY })
+        return t.getRestApi()
       .then(function (api) { return api.getToken(); })
       .then(function (token) {
         var urlWithToken = file.url +
