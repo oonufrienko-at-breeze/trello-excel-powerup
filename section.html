@@ -37,10 +37,7 @@
     t.getRestApi()
       .then(function (api) { return api.getToken(); })
       .then(function (token) {
-        /* Trello attachment download requires OAuth Authorization header.
-           The download endpoint is the Trello API URL (not trello.com/1/...) */
         var downloadUrl = file.url;
-        /* Replace trello.com/1/ with api.trello.com/1/ if needed */
         downloadUrl = downloadUrl.replace('https://trello.com/1/', 'https://api.trello.com/1/');
         return fetch(downloadUrl, {
           credentials: 'omit',
@@ -54,11 +51,10 @@
         return response.arrayBuffer();
       })
       .then(function (buffer) {
-        /* Store base64 data in sessionStorage so viewer.html can read it */
         var key = 'excel_preview_' + file.id;
         var b64 = arrayBufferToBase64(buffer);
-        sessionStorage.setItem(key, b64);
-        sessionStorage.setItem('excel_preview_name', file.name);
+        /* Use localStorage so the modal iframe (same origin) can read it */
+        localStorage.setItem(key, b64);
         t.modal({
           url: POWERUP_BASE_URL + '/viewer.html'
             + '?dataKey=' + encodeURIComponent(key)
