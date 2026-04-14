@@ -10,19 +10,19 @@
 </head>
 <body class="viewer-body">
   <header class="viewer-header">
-    <span id="file-name-label" class="file-name">Loading\u2026</span>
+    <span id="file-name-label" class="file-name">Loading…</span>
     <div class="header-right">
       <div id="sheet-tabs" class="sheet-tabs"></div>
-      <button id="close-btn" class="close-btn" title="Close">&#x2715;</button>
+      <button id="close-btn" class="close-btn" title="Close">✕</button>
     </div>
   </header>
   <main class="viewer-main">
     <div id="loading-state" class="state-box">
       <div class="spinner"></div>
-      <p>Rendering spreadsheet\u2026</p>
+      <p>Rendering spreadsheet…</p>
     </div>
     <div id="error-state" class="state-box hidden">
-      <p class="error-icon">\u26a0\ufe0f</p>
+      <p class="error-icon">⚠️</p>
       <p id="error-message">Could not load file.</p>
       <button id="retry-btn" class="retry-btn">Try again</button>
     </div>
@@ -33,36 +33,33 @@
 <script>
 (function () {
   'use strict';
-
   var t = TrelloPowerUp.iframe({
     appKey: 'eaa6d0d7c57218139af1b772bbd777cb',
     appName: 'Excel Preview'
   });
-
   var params = new URLSearchParams(window.location.search);
-  var fileUrl = params.get('fileUrl') || '';
-  var fileId  = params.get('fileId')  || '';
-  var fileName = params.get('name')   || 'Excel file';
+  var fileUrl  = params.get('fileUrl')  || '';
+  var fileName = params.get('name')     || 'Excel file';
+  var token    = params.get('token')    || '';
 
   document.getElementById('file-name-label').textContent = fileName;
   document.title = fileName;
 
-  var workbook = null;
-  var fileNameLabel   = document.getElementById('file-name-label');
-  var sheetTabsEl     = document.getElementById('sheet-tabs');
-  var loadingState    = document.getElementById('loading-state');
-  var errorState      = document.getElementById('error-state');
-  var errorMessage    = document.getElementById('error-message');
-  var retryBtn        = document.getElementById('retry-btn');
-  var tableWrapper    = document.getElementById('table-wrapper');
-  var tableContainer  = document.getElementById('table-container');
-  var closeBtn        = document.getElementById('close-btn');
+  var workbook       = null;
+  var sheetTabsEl    = document.getElementById('sheet-tabs');
+  var loadingState   = document.getElementById('loading-state');
+  var errorState     = document.getElementById('error-state');
+  var errorMessage   = document.getElementById('error-message');
+  var retryBtn       = document.getElementById('retry-btn');
+  var tableWrapper   = document.getElementById('table-wrapper');
+  var tableContainer = document.getElementById('table-container');
+  var closeBtn       = document.getElementById('close-btn');
 
   function show(el) { el.classList.remove('hidden'); }
   function hide(el) { el.classList.add('hidden'); }
   function showLoading() { show(loadingState); hide(errorState); hide(tableWrapper); }
   function showError(msg) { hide(loadingState); errorMessage.textContent = msg; show(errorState); hide(tableWrapper); }
-  function showTable() { hide(loadingState); hide(errorState); show(tableWrapper); }
+  function showTable()   { hide(loadingState); hide(errorState); show(tableWrapper); }
 
   function renderSheet(name) {
     var ws = workbook.Sheets[name];
@@ -98,6 +95,14 @@
     renderSheet(workbook.SheetNames[0]);
   }
 
+  function fetchWithToken(url, tok) {
+    var fetchUrl = url;
+    if (tok) {
+      fetchUrl += (url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(tok);
+    }
+    return fetch(fetchUrl, { credentials: 'omit' });
+  }
+
   function loadFile() {
     showLoading();
     workbook = null;
@@ -109,26 +114,35 @@
       return;
     }
 
-    /* t.getRestApi() works in a modal context (not blocked by popup blocker) */
-    t.getRestApi()
-      .then(function (api) { return api.getToken(); })
-      .then(function (token) {
-        var url = fileUrl +
-          (fileUrl.indexOf('?') === -1 ? '?' : '&') +
-          'token=' + encodeURIComponent(token);
-        return fetch(url, { credentials: 'omit' });
-      })
-      .then(function (response) {
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        return response.arrayBuffer();
-      })
-      .then(function (buffer) {
-        parseAndRender(buffer);
-      })
-      .catch(function (err) {
-        console.error('[ExcelPreview] load error:', err);
-        showError(err.message || 'Unknown error');
-      });
+    if (token) {
+      /* Token was passed from section.html — use it directly */
+      fetchWithToken(fileUrl, token)
+        .then(function (response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.arrayBuffer();
+        })
+        .then(function (buffer) {
+          parseAndRender(buffer);
+        })
+        .catch(function (err) {
+          console.error('[ExcelPreview] load error:', err);
+          showError(err.message || 'Unknown error');
+        });
+    } else {
+      /* Fallback: try to fetch without token (public attachments) */
+      fetch(fileUrl, { credentials: 'omit' })
+        .then(function (response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.arrayBuffer();
+        })
+        .then(function (buffer) {
+          parseAndRender(buffer);
+        })
+        .catch(function (err) {
+          console.error('[ExcelPreview] load error (no token):', err);
+          showError('Could not load file. Please authorize the Power-Up and try again.');
+        });
+    }
   }
 
   closeBtn.addEventListener('click', function () {
