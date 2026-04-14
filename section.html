@@ -9,6 +9,10 @@
 </head>
 <body class="section-body">
 <div id="attachment-list"></div>
+<div id="auth-notice" class="auth-notice hidden">
+  <p>⚠️ To preview Excel files, this Power-Up needs access to Trello.</p>
+  <button id="authorize-btn" class="section-preview-btn">Authorize</button>
+</div>
 <script>
 (function () {
   var t = TrelloPowerUp.iframe({
@@ -30,47 +34,71 @@
     return btoa(binary);
   }
 
-  function openPreview(file, btn) {
+  function fetchAndOpenPreview(file, btn, token) {
+    var downloadUrl = file.url;
+    downloadUrl = downloadUrl.replace('https://trello.com/1/', 'https://api.trello.com/1/');
     btn.disabled = true;
     btn.textContent = 'Loading...';
+    fetch(downloadUrl, {
+      credentials: 'omit',
+      headers: {
+        'Authorization': 'OAuth oauth_consumer_key="eaa6d0d7c57218139af1b772bbd777cb", oauth_token="' + token + '"'
+      }
+    })
+    .then(function (response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.arrayBuffer();
+    })
+    .then(function (buffer) {
+      var key = 'excel_preview_' + file.id;
+      localStorage.setItem(key, arrayBufferToBase64(buffer));
+      t.modal({
+        url: POWERUP_BASE_URL + '/viewer.html'
+          + '?dataKey=' + encodeURIComponent(key)
+          + '&name=' + encodeURIComponent(file.name),
+        accentColor: '#217346',
+        height: 800,
+        title: file.name
+      });
+      btn.disabled = false;
+      btn.textContent = 'Open preview';
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = 'Open preview';
+      console.error('[ExcelPreview]', err);
+      alert('Could not load preview: ' + (err.message || 'Unknown error'));
+    });
+  }
 
+  function openPreview(file, btn) {
     t.getRestApi()
-      .then(function (api) { return api.getToken(); })
-      .then(function (token) {
-        var downloadUrl = file.url;
-        downloadUrl = downloadUrl.replace('https://trello.com/1/', 'https://api.trello.com/1/');
-        return fetch(downloadUrl, {
-          credentials: 'omit',
-          headers: {
-            'Authorization': 'OAuth oauth_consumer_key="eaa6d0d7c57218139af1b772bbd777cb", oauth_token="' + token + '"'
+      .then(function (api) {
+        return api.isAuthorized().then(function (authorized) {
+          if (!authorized) {
+            return api.authorize({ scope: 'read' });
           }
+          return api.getToken();
         });
       })
-      .then(function (response) {
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        return response.arrayBuffer();
-      })
-      .then(function (buffer) {
-        var key = 'excel_preview_' + file.id;
-        var b64 = arrayBufferToBase64(buffer);
-        /* Use localStorage so the modal iframe (same origin) can read it */
-        localStorage.setItem(key, b64);
-        t.modal({
-          url: POWERUP_BASE_URL + '/viewer.html'
-            + '?dataKey=' + encodeURIComponent(key)
-            + '&name=' + encodeURIComponent(file.name),
-          accentColor: '#217346',
-          height: 800,
-          title: file.name
-        });
-        btn.disabled = false;
-        btn.textContent = 'Open preview';
+      .then(function (token) {
+        if (token) {
+          fetchAndOpenPreview(file, btn, token);
+        } else {
+          /* If authorize() was called but returned no token yet, try again */
+          t.getRestApi()
+            .then(function (api) { return api.getToken(); })
+            .then(function (tok) {
+              if (tok) fetchAndOpenPreview(file, btn, tok);
+              else alert('Authorization failed. Please try again.');
+            });
+        }
       })
       .catch(function (err) {
-        console.error('[ExcelPreview] Error:', err);
         btn.disabled = false;
         btn.textContent = 'Open preview';
-        alert('Could not load preview: ' + (err.message || 'Unknown error'));
+        console.error('[ExcelPreview] auth error:', err);
+        alert('Authorization error: ' + (err.message || 'Please try again.'));
       });
   }
 
