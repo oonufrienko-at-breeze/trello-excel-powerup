@@ -21,14 +21,10 @@
     return /\.(xlsx|xls|xlsm)$/i.test(name || '');
   }
 
-  /* Open viewer modal - pass file URL and ID as params.
-     The viewer.html (a Trello modal, not an attachment-section iframe)
-     can call t.getRestApi() successfully because modals are not
-     subject to the same popup-blocker restriction as section iframes. */
-  function openPreview(file, btn) {
-    btn.textContent = 'Loading\u2026';
-    btn.disabled = true;
-
+  function openPreview(file) {
+    /* t.modal() is fire-and-forget from section iframe.
+       Do NOT chain .then() on it - the promise resolves only on close.
+       Just call it and return immediately. */
     t.modal({
       url: POWERUP_BASE_URL + '/viewer.html'
         + '?fileUrl=' + encodeURIComponent(file.url)
@@ -37,11 +33,6 @@
       accentColor: '#217346',
       height: 800,
       title: file.name
-    }).catch(function (err) {
-      console.error('[ExcelPreview] modal error:', err);
-    }).then(function () {
-      btn.textContent = 'Open preview';
-      btn.disabled = false;
     });
   }
 
@@ -66,7 +57,7 @@
         btn.className = 'section-preview-btn';
         btn.textContent = 'Open preview';
         btn.addEventListener('click', function () {
-          openPreview(file, btn);
+          openPreview(file);
         });
         row.appendChild(icon);
         row.appendChild(nameSpan);
