@@ -1,136 +1,107 @@
-var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+// =============================================================
+// Trello Excel Preview Power-Up — Main Entry Point
+// =============================================================
+
+var BASE = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+var PROXY = 'https://trello-excel-viewer.vercel.app';
 var APP_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
-var HARDCODED_TOKEN = 'ATTA9039c83a92e37752f96365207f630de0043d0118062a2e9f6588d95e6fe8ce8b52C04FF8';
 
-function isExcel(name) {
-  return /\.(xlsx|xls|xlsm)$/i.test(name || '');
+var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
+
+var GRAY_ICON = BASE + '/icons/icon.svg';
+
+function isExcel(att) {
+  var name = (att.name || att.url || '').toLowerCase();
+  return EXCEL_EXTS.some(function(ext) { return name.endsWith(ext); });
 }
 
-function arrayBufferToBase64(buffer) {
-  var bytes = new Uint8Array(buffer);
-  var binary = '';
-  var chunkSize = 8192;
-  for (var i = 0; i < bytes.length; i += chunkSize) {
-    var chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode.apply(null, chunk);
-  }
-  return btoa(binary);
-}
-
-function downloadAttachment(t, file, token) {
-  var url = file.url;
-  url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
-  var sep = url.indexOf('?') >= 0 ? '&' : '?';
-  var fetchUrl = url + sep + 'token=' + encodeURIComponent(token) + '&key=' + APP_KEY;
-  return fetch(fetchUrl, { credentials: 'omit' }).then(function (res) {
-    if (res.ok) return res.arrayBuffer();
-    return t.card('id').then(function (card) {
-      var apiUrl = 'https://api.trello.com/1/cards/' + card.id +
-        '/attachments/' + file.id +
-        '?key=' + APP_KEY + '&token=' + encodeURIComponent(token);
-      return fetch(apiUrl).then(function (r) { return r.json(); }).then(function (att) {
-        var dlUrl = att.url || file.url;
-        var sep2 = dlUrl.indexOf('?') >= 0 ? '&' : '?';
-        return fetch(dlUrl + sep2 + 'token=' + encodeURIComponent(token), { credentials: 'omit' });
-      }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.arrayBuffer();
-      });
+// ── Get Trello REST API token (asks user if not yet authorized) ──
+function getToken(t) {
+  return t.getRestApi().getToken().then(function(token) {
+    if (token) return token;
+    return t.getRestApi().authorize({ scope: 'read' }).then(function() {
+      return t.getRestApi().getToken();
     });
+  }).catch(function() {
+    // Fallback — token not available, proxy will try without it
+    return '';
   });
 }
 
-function openPreview(t, file) {
-  return t.popup({
-    title: 'Loading...',
-    url: POWERUP_BASE_URL + '/loading.html',
-    height: 80
-  }).then(function () {
-    return new Promise(function (resolve) { setTimeout(resolve, 50); });
-  }).then(function () {
-    return downloadAttachment(t, file, HARDCODED_TOKEN);
-  }).then(function (buffer) {
-    var base64 = arrayBufferToBase64(buffer);
-    return t.set('card', 'private', 'previewData', {
-      base64: base64,
-      name: file.name,
-      ts: Date.now()
-    });
-  }).then(function () {
-    t.closePopup();
-    return t.modal({
-      url: POWERUP_BASE_URL + '/viewer.html?name=' + encodeURIComponent(file.name),
-      accentColor: '#217346',
-      height: 800,
-      title: file.name
-    });
-  }).catch(function (err) {
-    t.closePopup();
-    return t.popup({
-      title: 'Error',
-      url: POWERUP_BASE_URL + '/error.html?msg=' + encodeURIComponent(err.message || 'Could not load file'),
-      height: 120
-    });
+// ── Open modal with Excel viewer ──
+function openModal(t, att, token) {
+  return t.modal({
+    url: BASE + '/viewer.html',
+    args: {
+      url:   att.url,
+      name:  att.name,
+      id:    att.id,
+      token: token || '',
+      proxy: PROXY
+    },
+    fullscreen: true,
+    title: '\uD83D\uDCCA ' + att.name,
+    accentColor: '#1D6F42'
   });
 }
 
+// ── Initialize Power-Up ──
 TrelloPowerUp.initialize({
-  'attachment-sections': function (t, options) {
-    var claimed = (options.entries || []).filter(function (att) {
-      return isExcel(att.name);
-    });
+
+  // ── Attachment Sections: "Excel Preview" block on card back ──
+  'attachment-sections': function(t, options) {
+    var claimed = (options.entries || []).filter(isExcel);
     if (!claimed.length) return [];
-    var filesJson = encodeURIComponent(JSON.stringify(claimed.map(function (f) {
-      return { id: f.id, name: f.name, url: f.url };
-    })));
+
     return [{
       id: 'excel-preview-section',
       claimed: claimed,
-      icon: POWERUP_BASE_URL + '/icons/icon.svg',
-      title: 'Excel Previews',
+      icon: GRAY_ICON,
+      title: 'Excel Preview',
       content: {
         type: 'iframe',
-        url: t.signUrl(POWERUP_BASE_URL + '/section.html')
-          + '&auth=' + encodeURIComponent(HARDCODED_TOKEN)
-          + '&files=' + filesJson,
-        height: 80 * claimed.length + 30
+        url: t.signUrl(BASE + '/section.html'),
+        height: Math.min(44 * claimed.length + 16, 300)
       }
     }];
   },
-  'card-buttons': function (t) {
-    return t.card('attachments').then(function (card) {
-      var excelFiles = (card.attachments || []).filter(function (att) {
-        return isExcel(att.name);
-      });
-      if (!excelFiles.length) return [];
+
+  // ── Card Button: "Excel Preview" on card back header ──
+  'card-buttons': function(t) {
+    return t.card('attachments').then(function(card) {
+      var files = (card.attachments || []).filter(isExcel);
+      if (!files.length) return [];
+
       return [{
-        icon: POWERUP_BASE_URL + '/icons/icon.svg',
+        icon: GRAY_ICON,
         text: 'Excel Preview',
-        callback: function (t) {
-          if (excelFiles.length === 1) {
-            return openPreview(t, excelFiles[0]);
+        condition: 'always',
+        callback: function(t) {
+          if (files.length === 1) {
+            return getToken(t).then(function(token) {
+              return openModal(t, files[0], token);
+            });
           }
+          // Multiple files — show picker popup
+          var items = files.map(function(f) {
+            return {
+              text: f.name,
+              callback: function(t) {
+                return getToken(t).then(function(token) {
+                  return openModal(t, f, token);
+                });
+              }
+            };
+          });
           return t.popup({
-            title: 'Choose Excel file',
-            url: POWERUP_BASE_URL + '/picker.html',
-            args: {
-              files: excelFiles.map(function (f) {
-                return { url: f.url, id: f.id, name: f.name };
-              })
-            },
-            height: Math.min(400, excelFiles.length * 56 + 48)
+            title: 'Оберіть Excel файл',
+            items: items
           });
         }
       }];
     });
-  },
-  'show-settings': function (t) {
-    return t.popup({
-      title: 'Excel Preview Settings',
-      url: POWERUP_BASE_URL + '/settings.html',
-      height: 180
-    });
   }
+
 }, {
   appKey: APP_KEY,
   appName: 'Excel Preview'

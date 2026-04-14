@@ -1,154 +1,201 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="utf-8">
   <title>Excel Preview</title>
-  <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://p.trellocdn.com/power-up.min.js"></script>
-</head>
-<body class="viewer-body">
-  <header class="viewer-header">
-    <span id="file-name-label" class="file-name">Loading…</span>
-    <div class="header-right">
-      <div id="sheet-tabs" class="sheet-tabs"></div>
-      <button id="close-btn" class="close-btn" title="Close">✕</button>
-    </div>
-  </header>
-  <main class="viewer-main">
-    <div id="loading-state" class="state-box">
-      <div class="spinner"></div>
-      <p>Rendering spreadsheet…</p>
-    </div>
-    <div id="error-state" class="state-box hidden">
-      <p class="error-icon">⚠️</p>
-      <p id="error-message">Could not load file.</p>
-      <button id="retry-btn" class="retry-btn">Close and try again</button>
-    </div>
-    <div id="table-wrapper" class="table-wrapper hidden">
-      <div id="table-container" class="table-container"></div>
-    </div>
-  </main>
-<script>
-(function () {
-  'use strict';
-  var t = TrelloPowerUp.iframe({
-    appKey: 'eaa6d0d7c57218139af1b772bbd777cb',
-    appName: 'Excel Preview'
-  });
-  var params = new URLSearchParams(window.location.search);
-  var dataKey = params.get('dataKey') || '';
-  var fileName = params.get('name') || 'Excel file';
-  document.getElementById('file-name-label').textContent = fileName;
-  document.title = fileName;
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: #f4f5f7; }
 
-  var workbook = null;
-  var sheetTabsEl = document.getElementById('sheet-tabs');
-  var loadingState = document.getElementById('loading-state');
-  var errorState = document.getElementById('error-state');
-  var errorMessage = document.getElementById('error-message');
-  var retryBtn = document.getElementById('retry-btn');
-  var tableWrapper = document.getElementById('table-wrapper');
-  var tableContainer = document.getElementById('table-container');
-  var closeBtn = document.getElementById('close-btn');
+    .app { display: flex; flex-direction: column; height: 100%; }
 
-  function show(el) { el.classList.remove('hidden'); }
-  function hide(el) { el.classList.add('hidden'); }
-  function showLoading() { show(loadingState); hide(errorState); hide(tableWrapper); }
-  function showError(msg) { hide(loadingState); errorMessage.textContent = msg; show(errorState); hide(tableWrapper); }
-  function showTable() { hide(loadingState); hide(errorState); show(tableWrapper); }
-
-  function base64ToArrayBuffer(b64) {
-    var binary = atob(b64);
-    var bytes = new Uint8Array(binary.length);
-    for (var i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
+    /* Toolbar */
+    .toolbar {
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+      padding: 9px 14px; background: #fff; border-bottom: 1px solid #dfe1e6; min-height: 46px;
     }
-    return bytes.buffer;
+    .file-info { display: flex; align-items: center; gap: 8px; margin-right: auto; min-width: 0; }
+    .file-icon { width: 22px; height: 22px; flex-shrink: 0; }
+    .file-name { font-size: 14px; font-weight: 600; color: #172b4d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-size { font-size: 12px; color: #6b778c; flex-shrink: 0; }
+
+    /* Sheet tabs */
+    .sheet-tabs { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
+    .tab {
+      padding: 4px 13px; background: #f0f1f4; border: 1px solid #dfe1e6;
+      border-radius: 3px; font-size: 12px; color: #5e6c84; cursor: pointer;
+      transition: all 0.12s; white-space: nowrap;
+    }
+    .tab:hover { background: #e4e6ea; }
+    .tab.active { background: #1D6F42; color: #fff; border-color: #1D6F42; }
+
+    /* Table */
+    .table-wrap { flex: 1; overflow: auto; padding: 12px; }
+    #sheet-output table {
+      border-collapse: collapse; background: #fff; min-width: 100%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 13px;
+    }
+    #sheet-output tr:first-child td,
+    #sheet-output th {
+      background: #1D6F42; color: #fff; font-weight: 600;
+      padding: 8px 12px; white-space: nowrap; position: sticky; top: 0; z-index: 2;
+    }
+    #sheet-output td { padding: 6px 12px; color: #172b4d; border-bottom: 1px solid #f0f1f4; white-space: nowrap; max-width: 500px; overflow: hidden; text-overflow: ellipsis; }
+    #sheet-output tr:nth-child(even) td { background: #fafbfc; }
+    #sheet-output tr:hover td { background: #e8f5e9; }
+    #sheet-output tr:first-child:hover td { background: #1D6F42; color: #fff; }
+
+    /* States */
+    .state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 14px; padding: 24px; }
+    .spinner { width: 38px; height: 38px; border: 4px solid #dfe1e6; border-top-color: #1D6F42; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .state-text { font-size: 14px; color: #5e6c84; text-align: center; }
+    .err-icon { font-size: 44px; }
+    .err-msg { font-size: 14px; color: #de350b; text-align: center; max-width: 500px; }
+    .err-hint { font-size: 12px; color: #6b778c; text-align: center; max-width: 500px; }
+    .btn { padding: 7px 16px; background: #1D6F42; color: #fff; border: none; border-radius: 3px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn:hover { background: #165a36; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- Loading -->
+  <div id="s-loading" class="state">
+    <div class="spinner"></div>
+    <div class="state-text" id="loading-msg">Завантаження файлу...</div>
+  </div>
+
+  <!-- Error -->
+  <div id="s-error" class="state" style="display:none">
+    <div class="err-icon">⚠️</div>
+    <div class="err-msg" id="err-msg"></div>
+    <div class="err-hint" id="err-hint"></div>
+    <button class="btn" onclick="loadFile()">Спробувати знову</button>
+  </div>
+
+  <!-- Content -->
+  <div id="s-content" style="display:none; flex:1; min-height:0; display:flex; flex-direction:column;">
+    <div class="toolbar">
+      <div class="file-info">
+        <svg class="file-icon" viewBox="0 0 24 24" fill="#1D6F42">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
+          <path d="M14 2v6h6" fill="#a5d6a7"/>
+        </svg>
+        <span class="file-name" id="fname"></span>
+        <span class="file-size" id="fsize"></span>
+      </div>
+      <div class="sheet-tabs" id="tabs"></div>
+    </div>
+    <div class="table-wrap">
+      <div id="sheet-output"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var t = TrelloPowerUp.iframe({ appKey: 'eaa6d0d7c57218139af1b772bbd777cb', appName: 'Excel Preview' });
+  var wb = null;
+
+  function show(id) {
+    ['s-loading','s-error','s-content'].forEach(function(s) {
+      var el = document.getElementById(s);
+      el.style.display = (s === id) ? (s === 's-content' ? 'flex' : 'flex') : 'none';
+    });
+  }
+
+  function setLoading(msg) {
+    show('s-loading');
+    document.getElementById('loading-msg').textContent = msg || 'Завантаження...';
+  }
+
+  function setError(msg, hint) {
+    show('s-error');
+    document.getElementById('err-msg').textContent = msg || 'Помилка';
+    document.getElementById('err-hint').textContent = hint || '';
+  }
+
+  function fmtBytes(b) {
+    if (!b) return '';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
   }
 
   function renderSheet(name) {
-    var ws = workbook.Sheets[name];
-    if (!ws) return;
-    var html = XLSX.utils.sheet_to_html(ws, { id: 'excel-table', editable: false });
-    tableContainer.innerHTML = html;
-    var table = tableContainer.querySelector('table');
-    if (table) table.className = 'excel-table';
-    showTable();
-    sheetTabsEl.querySelectorAll('.tab-btn').forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.sheet === name);
+    var ws = wb.Sheets[name];
+    document.getElementById('sheet-output').innerHTML = XLSX.utils.sheet_to_html(ws, { editable: false });
+    document.querySelectorAll('#tabs .tab').forEach(function(tab) {
+      tab.classList.toggle('active', tab.dataset.sheet === name);
     });
   }
 
-  function buildTabs(names) {
-    sheetTabsEl.innerHTML = '';
-    names.forEach(function (name, idx) {
-      var btn = document.createElement('button');
-      btn.className = 'tab-btn' + (idx === 0 ? ' active' : '');
-      btn.dataset.sheet = name;
-      btn.textContent = name;
-      btn.addEventListener('click', function () { renderSheet(name); });
-      sheetTabsEl.appendChild(btn);
+  function buildTabs() {
+    var container = document.getElementById('tabs');
+    container.innerHTML = '';
+    wb.SheetNames.forEach(function(n) {
+      var tab = document.createElement('div');
+      tab.className = 'tab';
+      tab.dataset.sheet = n;
+      tab.textContent = n;
+      tab.addEventListener('click', function() { renderSheet(n); });
+      container.appendChild(tab);
     });
-  }
-
-  function parseAndRender(arrayBuffer) {
-    workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-    if (!workbook.SheetNames || !workbook.SheetNames.length) {
-      throw new Error('The file contains no sheets.');
-    }
-    buildTabs(workbook.SheetNames);
-    renderSheet(workbook.SheetNames[0]);
   }
 
   function loadFile() {
-    showLoading();
-    workbook = null;
-    sheetTabsEl.innerHTML = '';
-    tableContainer.innerHTML = '';
+    var attUrl  = t.arg('url');
+    var attName = t.arg('name') || 'Excel файл';
+    var token   = t.arg('token') || '';
+    var proxy   = t.arg('proxy') || 'https://trello-excel-viewer.vercel.app';
 
-    /* Strategy 1: Read from localStorage (set by section.html "Open preview" button) */
-    if (dataKey) {
-      var b64 = localStorage.getItem(dataKey);
-      if (b64) {
-        try {
-          var buffer = base64ToArrayBuffer(b64);
-          parseAndRender(buffer);
-          localStorage.removeItem(dataKey);
-          return;
-        } catch (err) {
-          showError(err.message || 'Could not parse the Excel file.');
-          return;
-        }
-      }
+    if (!attUrl) {
+      setError('URL файлу не знайдено.', 'Закрийте та відкрийте preview знову.');
+      return;
     }
 
-    /* Strategy 2: Read from Trello card storage (set by card-button flow) */
-    t.get('card', 'private', 'previewData').then(function (data) {
-      if (!data || !data.base64) {
-        showError('File data not found. Please close and try the preview again.');
+    document.getElementById('fname').textContent = attName;
+    setLoading('Завантаження ' + attName + '...');
+
+    var proxyUrl = proxy + '/api/proxy?url=' + encodeURIComponent(attUrl);
+    if (token) proxyUrl += '&token=' + encodeURIComponent(token);
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', proxyUrl, true);
+    xhr.responseType = 'arraybuffer';
+
+    xhr.onload = function() {
+      if (xhr.status !== 200) {
+        setError('Помилка завантаження (HTTP ' + xhr.status + ').', 'Перевірте, чи файл ще доступний на картці.');
         return;
       }
       try {
-        var buffer = base64ToArrayBuffer(data.base64);
-        parseAndRender(buffer);
-        /* Clean up */
-        t.remove('card', 'private', 'previewData').catch(function () {});
-      } catch (err) {
-        showError(err.message || 'Could not parse the Excel file.');
+        setLoading('Читаємо файл...');
+        var data = new Uint8Array(xhr.response);
+        document.getElementById('fsize').textContent = fmtBytes(data.byteLength);
+        wb = XLSX.read(data, { type: 'array' });
+        if (!wb.SheetNames || !wb.SheetNames.length) {
+          setError('Файл не містить аркушів.', 'Можливо, файл пошкоджений.');
+          return;
+        }
+        buildTabs();
+        renderSheet(wb.SheetNames[0]);
+        show('s-content');
+      } catch(e) {
+        setError('Не вдалося прочитати файл.', e.message);
       }
-    }).catch(function (err) {
-      showError('Could not load file data: ' + (err.message || 'unknown error'));
-    });
-  }
+    };
 
-  closeBtn.addEventListener('click', function () {
-    t.closeModal();
-  });
-  retryBtn.addEventListener('click', function () {
-    t.closeModal();
-  });
+    xhr.onerror = function() {
+      setError('Мережева помилка.', 'Перевірте підключення та спробуйте знову.');
+    };
+
+    xhr.send();
+  }
 
   loadFile();
 })();
