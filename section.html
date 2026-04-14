@@ -15,12 +15,12 @@
 (function () {
   var t = TrelloPowerUp.iframe();
   var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+  var TRELLO_API_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
 
   function isExcel(name) {
     return /\.(xlsx|xls|xlsm)$/i.test(name || '');
   }
 
-  /* ── base64 helper ── */
   function arrayBufferToBase64(buffer) {
     var bytes = new Uint8Array(buffer);
     var binary = '';
@@ -32,20 +32,14 @@
   }
 
   function openPreview(file) {
-    /* Immediately show a "Loading" popup as visual feedback */
-    t.popup({
-      title: 'Loading…',
-      url: POWERUP_BASE_URL + '/loading.html',
-      height: 80
-    });
-
-    t.getRestApi()
+    /* t.popup() requires a mouse event or el - not available here.
+       Instead we show a loading state in the button, then open modal directly. */
+    return t.getRestApi({ key: TRELLO_API_KEY })
       .then(function (api) { return api.getToken(); })
       .then(function (token) {
         var urlWithToken = file.url +
           (file.url.indexOf('?') === -1 ? '?' : '&') +
           'token=' + encodeURIComponent(token);
-
         return fetch(urlWithToken, { credentials: 'omit' })
           .then(function (response) {
             if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -61,7 +55,6 @@
         });
       })
       .then(function () {
-        t.closePopup();
         return t.modal({
           url: POWERUP_BASE_URL + '/viewer.html?name=' + encodeURIComponent(file.name),
           accentColor: '#217346',
@@ -70,11 +63,11 @@
         });
       })
       .catch(function (err) {
-        t.closePopup();
-        t.popup({
-          title: 'Error',
-          url: POWERUP_BASE_URL + '/error.html?msg=' + encodeURIComponent(err.message || 'Could not load file'),
-          height: 120
+        t.alert({
+          message: 'Could not load file: ' + (err.message || 'Unknown error'),
+          duration: 5
+        }).catch(function () {
+          alert('Could not load file: ' + (err.message || 'Unknown error'));
         });
       });
   }
@@ -84,10 +77,8 @@
       var excelFiles = (card.attachments || []).filter(function (att) {
         return isExcel(att.name);
       });
-
       var container = document.getElementById('attachment-list');
       container.innerHTML = '';
-
       excelFiles.forEach(function (file) {
         var row = document.createElement('div');
         row.className = 'section-row';
@@ -104,14 +95,20 @@
         var btn = document.createElement('button');
         btn.className = 'section-preview-btn';
         btn.textContent = 'Open preview';
-        btn.addEventListener('click', function () { openPreview(file); });
+        btn.addEventListener('click', function () {
+          btn.textContent = 'Loading…';
+          btn.disabled = true;
+          openPreview(file).finally(function () {
+            btn.textContent = 'Open preview';
+            btn.disabled = false;
+          });
+        });
 
         row.appendChild(icon);
         row.appendChild(nameSpan);
         row.appendChild(btn);
         container.appendChild(row);
       });
-
       t.sizeTo('#attachment-list').catch(function () {});
     });
   });
