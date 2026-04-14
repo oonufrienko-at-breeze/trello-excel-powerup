@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Choose Excel file</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body class="picker-body">
+
+<ul id="file-list" class="file-list"></ul>
+
+<script>
+(function () {
+  var t = TrelloPowerUp.iframe();
+  var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+
+  function getViewerUrl(fileUrl, fileName) {
+    return (
+      POWERUP_BASE_URL +
+      '/viewer.html?file=' +
+      encodeURIComponent(fileUrl) +
+      '&name=' +
+      encodeURIComponent(fileName || 'Excel file')
+    );
+  }
+
+  t.render(function () {
+    var args = t.arg('files') || [];
+    var list = document.getElementById('file-list');
+    list.innerHTML = '';
+
+    args.forEach(function (file) {
+      var li = document.createElement('li');
+      li.className = 'file-item';
+
+      var btn = document.createElement('button');
+      btn.className = 'file-btn';
+      btn.textContent = file.name;
+      btn.addEventListener('click', function () {
+        t.closePopup();
+        t.modal({
+          url: getViewerUrl(file.url, file.name),
+          accentColor: '#217346',
+          height: 800,
+          title: file.name
+        });
+      });
+
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+
+    t.sizeTo('#file-list').catch(function () {});
+  });
+})();
+</script>
+</body>
+</html>

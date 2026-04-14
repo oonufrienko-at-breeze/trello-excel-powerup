@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Excel Preview</title>
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- SheetJS (xlsx) — full build from CDN -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <!-- Trello Power-Up SDK -->
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body class="viewer-body">
+
+  <!-- ── Top bar ── -->
+  <header class="viewer-header">
+    <span id="file-name-label" class="file-name">Loading…</span>
+    <div class="header-right">
+      <div id="sheet-tabs" class="sheet-tabs"></div>
+      <button id="close-btn" class="close-btn" title="Close">✕</button>
+    </div>
+  </header>
+
+  <!-- ── Main content ── -->
+  <main class="viewer-main">
+    <div id="loading-state" class="state-box">
+      <div class="spinner"></div>
+      <p>Loading Excel file…</p>
+    </div>
+
+    <div id="error-state" class="state-box hidden">
+      <p class="error-icon">⚠️</p>
+      <p id="error-message">Could not load file.</p>
+      <button id="retry-btn" class="retry-btn">Try again</button>
+    </div>
+
+    <div id="table-wrapper" class="table-wrapper hidden">
+      <div id="table-container" class="table-container"></div>
+    </div>
+  </main>
+
+<script>
+/* =============================================================
+   viewer.js — inline
+   ============================================================= */
+(function () {
+  'use strict';
+
+  /* ── Trello iframe init ── */
+  var t = TrelloPowerUp.iframe();
+
+  /* ── DOM refs ── */
+  var fileNameLabel  = document.getElementById('file-name-label');
+  var sheetTabsEl    = document.getElementById('sheet-tabs');
+  var loadingState   = document.getElementById('loading-state');
+  var errorState     = document.getElementById('error-state');
+  var errorMessage   = document.getElementById('error-message');
+  var retryBtn       = document.getElementById('retry-btn');
+  var tableWrapper   = document.getElementById('table-wrapper');
+  var tableContainer = document.getElementById('table-container');
+  var closeBtn       = document.getElementById('close-btn');
+
+  /* ── Parse URL params ── */
+  var params   = new URLSearchParams(window.location.search);
+  var fileUrl  = params.get('file')  || '';
+  var fileName = params.get('name')  || 'Excel file';
+
+  fileNameLabel.textContent = fileName;
+  document.title = fileName;
+
+  /* ── Workbook state ── */
+  var workbook = null;
+
+  /* ── UI helpers ── */
+  function show(el)  { el.classList.remove('hidden'); }
+  function hide(el)  { el.classList.add('hidden');    }
+
+  function showLoading() {
+    show(loadingState);
+    hide(errorState);
+    hide(tableWrapper);
+  }
+
+  function showError(msg) {
+    hide(loadingState);
+    errorMessage.textContent = msg;
+    show(errorState);
+    hide(tableWrapper);
+  }
+
+  function showTable() {
+    hide(loadingState);
+    hide(errorState);
+    show(tableWrapper);
+  }
+
+  /* ── Render a specific sheet ── */
+  function renderSheet(sheetName) {
+    var ws = workbook.Sheets[sheetName];
+    if (!ws) return;
+
+    /* Convert sheet to HTML table via SheetJS */
+    var html = XLSX.utils.sheet_to_html(ws, {
+      id: 'excel-table',
+      editable: false
+    });
+
+    tableContainer.innerHTML = html;
+
+    /* Basic styling tweaks to the generated table */
+    var table = tableContainer.querySelector('table');
+    if (table) {
+      table.className = 'excel-table';
+    }
+
+    showTable();
+
+    /* Update active tab */
+    var tabs = sheetTabsEl.querySelectorAll('.tab-btn');
+    tabs.forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.sheet === sheetName);
+    });
+  }
+
+  /* ── Build sheet tabs ── */
+  function buildTabs(sheetNames) {
+    sheetTabsEl.innerHTML = '';
+    sheetNames.forEach(function (name, idx) {
+      var btn = document.createElement('button');
+      btn.className = 'tab-btn' + (idx === 0 ? ' active' : '');
+      btn.dataset.sheet = name;
+      btn.textContent = name;
+      btn.addEventListener('click', function () {
+        renderSheet(name);
+      });
+      sheetTabsEl.appendChild(btn);
+    });
+  }
+
+  /* ── Load & parse Excel file ── */
+  function loadFile() {
+    showLoading();
+    workbook = null;
+    sheetTabsEl.innerHTML = '';
+    tableContainer.innerHTML = '';
+
+    if (!fileUrl) {
+      showError('No file URL provided.');
+      return;
+    }
+
+    fetch(fileUrl)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error('HTTP ' + response.status + ' — ' + response.statusText);
+        }
+        return response.arrayBuffer();
+      })
+      .then(function (buffer) {
+        try {
+          workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+        } catch (e) {
+          throw new Error('Could not parse file: ' + e.message);
+        }
+
+        if (!workbook.SheetNames || !workbook.SheetNames.length) {
+          throw new Error('The file has no sheets.');
+        }
+
+        buildTabs(workbook.SheetNames);
+        renderSheet(workbook.SheetNames[0]);
+      })
+      .catch(function (err) {
+        console.error('[ExcelPreview] Load error:', err);
+        showError(err.message || 'Unknown error loading file.');
+      });
+  }
+
+  /* ── Close modal ── */
+  closeBtn.addEventListener('click', function () {
+    t.closeModal();
+  });
+
+  /* ── Retry button ── */
+  retryBtn.addEventListener('click', function () {
+    loadFile();
+  });
+
+  /* ── Start ── */
+  loadFile();
+
+})();
+</script>
+</body>
+</html>

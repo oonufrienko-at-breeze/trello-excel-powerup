@@ -1,0 +1,18 @@
+{
+  "name": "Excel Preview",
+  "description": "Preview .xlsx, .xls and .xlsm files directly in Trello without downloading",
+  "author": "YOUR_NAME",
+  "icon": {
+    "url": "https://oonufrienko-at-breeze.github.io/trello-excel-powerup/icons/icon.svg"
+  },
+  "capabilities": [
+    "attachment-sections",
+    "card-buttons",
+    "show-settings"
+  ],
+  "connectors": {
+    "iframe": {
+      "url": "https://oonufrienko-at-breeze.github.io/trello-excel-powerup/client.html"
+    }
+  }
+}

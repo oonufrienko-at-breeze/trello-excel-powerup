@@ -1,0 +1,274 @@
+/* =============================================================
+   Excel Preview Power-Up — styles.css
+   ============================================================= */
+
+/* ── Reset & base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: #172b4d;
+  background: #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   VIEWER
+═══════════════════════════════════════════════════════════ */
+.viewer-body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: #f4f5f7;
+}
+
+/* ── Header ── */
+.viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px;
+  height: 48px;
+  background: #217346;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,.18);
+}
+
+.file-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Sheet tabs ── */
+.sheet-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  max-width: 480px;
+}
+
+.sheet-tabs::-webkit-scrollbar { height: 3px; }
+.sheet-tabs::-webkit-scrollbar-thumb { background: rgba(255,255,255,.4); border-radius: 2px; }
+
+.tab-btn {
+  padding: 4px 10px;
+  border: 1px solid rgba(255,255,255,.4);
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255,255,255,.85);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.tab-btn:hover  { background: rgba(255,255,255,.15); color: #fff; }
+.tab-btn.active { background: rgba(255,255,255,.25); color: #fff; border-color: #fff; font-weight: 600; }
+
+/* ── Close button ── */
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255,255,255,.85);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.close-btn:hover { background: rgba(255,255,255,.2); color: #fff; }
+
+/* ── Main area ── */
+.viewer-main {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── State boxes (loading / error) ── */
+.state-box {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #5e6c84;
+}
+
+.hidden { display: none !important; }
+
+/* Spinner */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #dfe1e6;
+  border-top-color: #217346;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error-icon { font-size: 32px; }
+
+.retry-btn {
+  padding: 6px 16px;
+  border: 1px solid #217346;
+  border-radius: 4px;
+  background: #217346;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.retry-btn:hover { background: #1a5c38; }
+
+/* ── Table wrapper ── */
+.table-wrapper {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+.table-wrapper::-webkit-scrollbar { width: 8px; height: 8px; }
+.table-wrapper::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 4px; }
+.table-wrapper::-webkit-scrollbar-track { background: #f4f5f7; }
+
+.table-container {
+  min-width: max-content;
+}
+
+/* ── Excel table ── */
+.excel-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.excel-table td,
+.excel-table th {
+  border: 1px solid #dfe1e6;
+  padding: 4px 8px;
+  min-width: 60px;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.excel-table tr:nth-child(even) td { background: #f8f9fa; }
+.excel-table tr:hover td { background: #e8f4ec; }
+
+/* First row as header style */
+.excel-table tr:first-child td {
+  background: #217346;
+  color: #fff;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* ── SheetJS-generated table overrides ── */
+table#excel-table { width: auto; }
+
+/* =============================================================
+   PICKER
+============================================================= */
+.picker-body { padding: 8px 0; }
+
+.file-list { list-style: none; }
+
+.file-item { border-bottom: 1px solid #f4f5f7; }
+.file-item:last-child { border-bottom: none; }
+
+.file-btn {
+  width: 100%;
+  padding: 10px 16px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #172b4d;
+  transition: background .12s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-btn:hover { background: #f4f5f7; color: #0079bf; }
+
+/* =============================================================
+   SECTION (attachment-sections)
+============================================================= */
+.section-body { padding: 4px 0; }
+
+.section-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #f4f5f7;
+}
+.section-row:last-child { border-bottom: none; }
+
+.section-icon { width: 20px; height: 20px; flex-shrink: 0; }
+
+.section-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.section-preview-btn {
+  padding: 4px 10px;
+  border: 1px solid #217346;
+  border-radius: 4px;
+  background: #217346;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .12s;
+}
+.section-preview-btn:hover { background: #1a5c38; }
+
+/* =============================================================
+   SETTINGS
+============================================================= */
+.settings-body { padding: 16px; }
+
+.settings-info {
+  line-height: 1.7;
+  color: #5e6c84;
+  font-size: 13px;
+}
+.settings-info strong { color: #172b4d; }
+.settings-info code {
+  background: #f4f5f7;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+}

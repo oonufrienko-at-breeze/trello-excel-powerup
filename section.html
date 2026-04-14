@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Excel Attachments</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body class="section-body">
+
+<div id="attachment-list"></div>
+
+<script>
+(function () {
+  var t = TrelloPowerUp.iframe();
+  var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+
+  function isExcel(name) {
+    return /\.(xlsx|xls|xlsm)$/i.test(name || '');
+  }
+
+  function getViewerUrl(fileUrl, fileName) {
+    return (
+      POWERUP_BASE_URL +
+      '/viewer.html?file=' +
+      encodeURIComponent(fileUrl) +
+      '&name=' +
+      encodeURIComponent(fileName || 'Excel file')
+    );
+  }
+
+  t.render(function () {
+    t.card('attachments').then(function (card) {
+      var excelFiles = (card.attachments || []).filter(function (att) {
+        return isExcel(att.name);
+      });
+
+      var container = document.getElementById('attachment-list');
+      container.innerHTML = '';
+
+      excelFiles.forEach(function (file) {
+        var row = document.createElement('div');
+        row.className = 'section-row';
+
+        var icon = document.createElement('img');
+        icon.src = POWERUP_BASE_URL + '/icons/icon.svg';
+        icon.className = 'section-icon';
+        icon.alt = '';
+
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'section-name';
+        nameSpan.textContent = file.name;
+
+        var btn = document.createElement('button');
+        btn.className = 'section-preview-btn';
+        btn.textContent = 'Open preview';
+        btn.addEventListener('click', function () {
+          t.modal({
+            url: getViewerUrl(file.url, file.name),
+            accentColor: '#217346',
+            height: 800,
+            title: file.name
+          });
+        });
+
+        row.appendChild(icon);
+        row.appendChild(nameSpan);
+        row.appendChild(btn);
+        container.appendChild(row);
+      });
+
+      t.sizeTo('#attachment-list').catch(function () {});
+    });
+  });
+})();
+</script>
+</body>
+</html>
