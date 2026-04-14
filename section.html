@@ -73,7 +73,7 @@
     var container = document.getElementById('attachment-list');
     container.innerHTML = '';
     if (!excelFiles.length) {
-      container.textContent = 'No Excel files found';
+      container.textContent = 'No Excel files';
       t.sizeTo('#attachment-list').catch(function () {});
       return;
     }
@@ -90,9 +90,7 @@
       var btn = document.createElement('button');
       btn.className = 'section-preview-btn';
       btn.textContent = 'Open preview';
-      btn.addEventListener('click', function () {
-        doFetch(file, btn);
-      });
+      btn.addEventListener('click', function () { doFetch(file, btn); });
       row.appendChild(icon);
       row.appendChild(nameSpan);
       row.appendChild(btn);
@@ -105,30 +103,37 @@
     return /\.(xlsx|xls|xlsm)$/i.test(name || '');
   }
 
-  /* Strategy 1: files passed via URL param from connector */
+  /* Strategy 1: files list passed via URL params */
   if (filesRaw) {
     try {
-      var parsed = JSON.parse(decodeURIComponent(filesRaw));
-      renderFiles(parsed);
+      renderFiles(JSON.parse(decodeURIComponent(filesRaw)));
       return;
     } catch (e) { /* fall through */ }
   }
 
-  /* Strategy 2: get card id via t.card(), fetch attachments via REST API */
-  t.card('id').then(function (card) {
-    var apiUrl = 'https://api.trello.com/1/cards/' + card.id +
-      '/attachments?key=' + APP_KEY + '&token=' + encodeURIComponent(AUTH_TOKEN);
-    return fetch(apiUrl).then(function (r) { return r.json(); });
-  }).then(function (attachments) {
-    var excelFiles = (Array.isArray(attachments) ? attachments : []).filter(function (att) {
-      return isExcel(att.name);
-    }).map(function (att) {
-      return { id: att.id, name: att.name, url: att.url };
+  /* Strategy 2: use t.card('attachments') via Power-Up SDK */
+  t.render(function () {
+    t.card('attachments').then(function (card) {
+      var excelFiles = (card.attachments || []).filter(function (a) { return isExcel(a.name); });
+      if (excelFiles.length) {
+        renderFiles(excelFiles);
+        return;
+      }
+      /* Strategy 3: fetch from REST API directly */
+      t.card('id').then(function (c) {
+        var url = 'https://api.trello.com/1/cards/' + c.id +
+          '/attachments?key=' + APP_KEY + '&token=' + encodeURIComponent(AUTH_TOKEN);
+        return fetch(url).then(function (r) { return r.json(); });
+      }).then(function (atts) {
+        renderFiles((Array.isArray(atts) ? atts : []).filter(function (a) { return isExcel(a.name); }));
+      }).catch(function (e) {
+        document.getElementById('attachment-list').textContent = 'Err:' + e.message;
+        t.sizeTo('#attachment-list').catch(function () {});
+      });
+    }).catch(function (e) {
+      document.getElementById('attachment-list').textContent = 'SDK err:' + e.message;
+      t.sizeTo('#attachment-list').catch(function () {});
     });
-    renderFiles(excelFiles);
-  }).catch(function (err) {
-    document.getElementById('attachment-list').textContent = 'Error: ' + (err.message || 'unknown');
-    t.sizeTo('#attachment-list').catch(function () {});
   });
 })();
 </script>
