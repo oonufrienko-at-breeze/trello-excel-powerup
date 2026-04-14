@@ -6,143 +6,107 @@
   <title>Excel Attachments</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <style>
+    body { margin: 0; padding: 4px; font-size: 13px; font-family: sans-serif; }
+    .row { display: flex; align-items: center; padding: 6px 8px; gap: 8px; border-bottom: 1px solid #eee; }
+    .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .btn { background: #217346; color: white; border: none; border-radius: 3px; padding: 4px 10px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    .msg { padding: 8px; color: #5e6c84; }
+  </style>
 </head>
-<body class="section-body">
-<div id="attachment-list"></div>
+<body>
+<div id="root"><div class="msg">Loading...</div></div>
 <script>
 (function () {
   var APP_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
-  var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
-  var HARDCODED_TOKEN = 'ATTA9039c83a92e37752f96365207f630de0043d0118062a2e9f6588d95e6fe8ce8b52C04FF8';
+  var BASE = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+  var TOKEN = 'ATTA9039c83a92e37752f96365207f630de0043d0118062a2e9f6588d95e6fe8ce8b52C04FF8';
 
-  var params = new URLSearchParams(window.location.search);
-  var AUTH_TOKEN = params.get('auth') || HARDCODED_TOKEN;
-  var filesRaw = params.get('files') || '';
+  var root = document.getElementById('root');
 
-  var t = TrelloPowerUp.iframe({
-    appKey: APP_KEY,
-    appName: 'Excel Preview'
-  });
-
-  function arrayBufferToBase64(buffer) {
-    var bytes = new Uint8Array(buffer);
-    var binary = '';
-    var chunkSize = 8192;
-    for (var i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-    }
-    return btoa(binary);
+  function msg(text) {
+    root.innerHTML = '<div class="msg">' + text + '</div>';
   }
 
-  function doFetch(file, btn) {
-    btn.textContent = 'Downloading...';
+  function isExcel(n) { return /\.(xlsx|xls|xlsm)$/i.test(n || ''); }
+
+  function b64(buf) {
+    var b = new Uint8Array(buf), s = '', cs = 8192;
+    for (var i = 0; i < b.length; i += cs) s += String.fromCharCode.apply(null, b.subarray(i, i + cs));
+    return btoa(s);
+  }
+
+  function renderList(files) {
+    if (!files || !files.length) { msg('No Excel files'); return; }
+    root.innerHTML = '';
+    files.forEach(function (f) {
+      var d = document.createElement('div');
+      d.className = 'row';
+      var nm = document.createElement('span');
+      nm.className = 'name';
+      nm.textContent = f.name;
+      var btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = 'Open preview';
+      btn.onclick = function () { download(f, btn); };
+      d.appendChild(nm);
+      d.appendChild(btn);
+      root.appendChild(d);
+    });
+    t.sizeTo('#root').catch(function () {});
+  }
+
+  function download(f, btn) {
+    btn.textContent = 'Loading...';
     btn.disabled = true;
-    var url = file.url;
-    url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
-    var sep = url.indexOf('?') >= 0 ? '&' : '?';
-    var fetchUrl = url + sep + 'token=' + encodeURIComponent(AUTH_TOKEN) + '&key=' + APP_KEY;
-    fetch(fetchUrl, { credentials: 'omit' })
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.arrayBuffer();
-      })
-      .then(function (buffer) {
-        var key = 'excel_preview_' + file.id;
-        localStorage.setItem(key, arrayBufferToBase64(buffer));
+    var u = f.url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
+    var sep = u.indexOf('?') >= 0 ? '&' : '?';
+    fetch(u + sep + 'token=' + encodeURIComponent(TOKEN) + '&key=' + APP_KEY, { credentials: 'omit' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+      .then(function (buf) {
+        var key = 'xp_' + f.id;
+        localStorage.setItem(key, b64(buf));
         btn.textContent = 'Open preview';
         btn.disabled = false;
-        t.modal({
-          url: POWERUP_BASE_URL + '/viewer.html'
-            + '?dataKey=' + encodeURIComponent(key)
-            + '&name=' + encodeURIComponent(file.name),
-          accentColor: '#217346',
-          height: 800,
-          title: file.name
-        });
+        t.modal({ url: BASE + '/viewer.html?dataKey=' + encodeURIComponent(key) + '&name=' + encodeURIComponent(f.name), height: 800, title: f.name, accentColor: '#217346' });
       })
-      .catch(function (err) {
-        btn.textContent = 'Error: ' + err.message.slice(0, 20);
+      .catch(function (e) {
+        btn.textContent = 'Error';
         btn.disabled = false;
-        setTimeout(function () { btn.textContent = 'Open preview'; }, 4000);
+        setTimeout(function () { btn.textContent = 'Open preview'; }, 3000);
       });
   }
 
-  function renderFiles(excelFiles) {
-    var container = document.getElementById('attachment-list');
-    container.innerHTML = '';
-    if (!excelFiles || !excelFiles.length) {
-      container.textContent = 'No Excel files found';
-      t.sizeTo('#attachment-list').catch(function () {});
-      return;
-    }
-    excelFiles.forEach(function (file) {
-      var row = document.createElement('div');
-      row.className = 'section-row';
-      var icon = document.createElement('img');
-      icon.src = POWERUP_BASE_URL + '/icons/icon.svg';
-      icon.className = 'section-icon';
-      icon.alt = '';
-      var nameSpan = document.createElement('span');
-      nameSpan.className = 'section-name';
-      nameSpan.textContent = file.name;
-      var btn = document.createElement('button');
-      btn.className = 'section-preview-btn';
-      btn.textContent = 'Open preview';
-      btn.addEventListener('click', function () { doFetch(file, btn); });
-      row.appendChild(icon);
-      row.appendChild(nameSpan);
-      row.appendChild(btn);
-      container.appendChild(row);
-    });
-    t.sizeTo('#attachment-list').catch(function () {});
-  }
+  var params = new URLSearchParams(window.location.search);
+  var auth = params.get('auth') || TOKEN;
+  var filesRaw = params.get('files') || '';
 
-  function isExcel(name) {
-    return /\.(xlsx|xls|xlsm)$/i.test(name || '');
-  }
+  var t = TrelloPowerUp.iframe({ appKey: APP_KEY, appName: 'Excel Preview' });
 
   t.render(function () {
-    /* Strategy 1: files passed in URL */
     if (filesRaw) {
       try {
-        var files = JSON.parse(decodeURIComponent(filesRaw));
-        if (files && files.length) {
-          renderFiles(files);
-          return;
-        }
-      } catch (e) { /* fall through */ }
+        var parsed = JSON.parse(decodeURIComponent(filesRaw));
+        if (parsed && parsed.length) { renderList(parsed); return; }
+      } catch (e) {}
     }
-
-    /* Strategy 2: t.card('attachments') */
     t.card('attachments').then(function (card) {
-      var excelFiles = (card.attachments || []).filter(function (a) { return isExcel(a.name); });
-      if (excelFiles.length) {
-        renderFiles(excelFiles);
-        return;
-      }
-      /* Strategy 3: REST API */
+      var ex = (card.attachments || []).filter(function (a) { return isExcel(a.name); });
+      if (ex.length) { renderList(ex); return; }
       t.card('id').then(function (c) {
-        var url = 'https://api.trello.com/1/cards/' + c.id +
-          '/attachments?key=' + APP_KEY + '&token=' + encodeURIComponent(AUTH_TOKEN);
-        return fetch(url).then(function (r) { return r.json(); });
+        return fetch('https://api.trello.com/1/cards/' + c.id + '/attachments?key=' + APP_KEY + '&token=' + encodeURIComponent(auth))
+          .then(function (r) { return r.json(); });
       }).then(function (atts) {
-        renderFiles((Array.isArray(atts) ? atts : []).filter(function (a) { return isExcel(a.name); }));
-      }).catch(function (e) {
-        document.getElementById('attachment-list').textContent = 'API err: ' + e.message;
-        t.sizeTo('#attachment-list').catch(function () {});
-      });
+        renderList((Array.isArray(atts) ? atts : []).filter(function (a) { return isExcel(a.name); }));
+      }).catch(function (e) { msg('API: ' + e.message); t.sizeTo('#root').catch(function(){}); });
     }).catch(function (e) {
-      /* Strategy 3: REST API when t.card fails */
       t.card('id').then(function (c) {
-        var url = 'https://api.trello.com/1/cards/' + c.id +
-          '/attachments?key=' + APP_KEY + '&token=' + encodeURIComponent(AUTH_TOKEN);
-        return fetch(url).then(function (r) { return r.json(); });
+        return fetch('https://api.trello.com/1/cards/' + c.id + '/attachments?key=' + APP_KEY + '&token=' + encodeURIComponent(auth))
+          .then(function (r) { return r.json(); });
       }).then(function (atts) {
-        renderFiles((Array.isArray(atts) ? atts : []).filter(function (a) { return isExcel(a.name); }));
-      }).catch(function (e2) {
-        document.getElementById('attachment-list').textContent = 'Err: ' + e.message + ' / ' + e2.message;
-        t.sizeTo('#attachment-list').catch(function () {});
-      });
+        renderList((Array.isArray(atts) ? atts : []).filter(function (a) { return isExcel(a.name); }));
+      }).catch(function (e2) { msg('E:' + e.message.slice(0,30)); t.sizeTo('#root').catch(function(){}); });
     });
   });
 })();
