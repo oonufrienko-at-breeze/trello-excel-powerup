@@ -21,35 +21,60 @@
     return /\.(xlsx|xls|xlsm)$/i.test(name || '');
   }
 
-  function openPreview(file) {
-    /* Get REST API token in section context (has full t access),
-       then pass it to viewer.html so it can fetch the attachment directly. */
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    for (var i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  function openPreview(file, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+
     t.getRestApi()
       .then(function (api) { return api.getToken(); })
       .then(function (token) {
-        t.modal({
-          url: POWERUP_BASE_URL + '/viewer.html'
-            + '?fileUrl=' + encodeURIComponent(file.url)
-            + '&fileId=' + encodeURIComponent(file.id || '')
-            + '&name=' + encodeURIComponent(file.name)
-            + '&token=' + encodeURIComponent(token),
-          accentColor: '#217346',
-          height: 800,
-          title: file.name
+        /* Trello attachment download requires OAuth Authorization header.
+           The download endpoint is the Trello API URL (not trello.com/1/...) */
+        var downloadUrl = file.url;
+        /* Replace trello.com/1/ with api.trello.com/1/ if needed */
+        downloadUrl = downloadUrl.replace('https://trello.com/1/', 'https://api.trello.com/1/');
+        return fetch(downloadUrl, {
+          credentials: 'omit',
+          headers: {
+            'Authorization': 'OAuth oauth_consumer_key="eaa6d0d7c57218139af1b772bbd777cb", oauth_token="' + token + '"'
+          }
         });
       })
-      .catch(function (err) {
-        console.error('[ExcelPreview] Could not get token:', err);
-        /* Fallback: open without token (will likely fail for private attachments) */
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.arrayBuffer();
+      })
+      .then(function (buffer) {
+        /* Store base64 data in sessionStorage so viewer.html can read it */
+        var key = 'excel_preview_' + file.id;
+        var b64 = arrayBufferToBase64(buffer);
+        sessionStorage.setItem(key, b64);
+        sessionStorage.setItem('excel_preview_name', file.name);
         t.modal({
           url: POWERUP_BASE_URL + '/viewer.html'
-            + '?fileUrl=' + encodeURIComponent(file.url)
-            + '&fileId=' + encodeURIComponent(file.id || '')
+            + '?dataKey=' + encodeURIComponent(key)
             + '&name=' + encodeURIComponent(file.name),
           accentColor: '#217346',
           height: 800,
           title: file.name
         });
+        btn.disabled = false;
+        btn.textContent = 'Open preview';
+      })
+      .catch(function (err) {
+        console.error('[ExcelPreview] Error:', err);
+        btn.disabled = false;
+        btn.textContent = 'Open preview';
+        alert('Could not load preview: ' + (err.message || 'Unknown error'));
       });
   }
 
@@ -74,7 +99,7 @@
         btn.className = 'section-preview-btn';
         btn.textContent = 'Open preview';
         btn.addEventListener('click', function () {
-          openPreview(file);
+          openPreview(file, btn);
         });
         row.appendChild(icon);
         row.appendChild(nameSpan);
