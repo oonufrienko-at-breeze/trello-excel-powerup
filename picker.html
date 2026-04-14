@@ -13,7 +13,7 @@
 
 <script>
 (function () {
-  var t = TrelloPowerUp.iframe();
+    var t = TrelloPowerUp.iframe({ appKey: 'eaa6d0d7c57218139af1b772bbd777cb', appName: 'Excel Preview' });
   var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
 
   /* ── base64 helper (same as client.js) ── */
@@ -30,14 +30,8 @@
   function openPreview(file) {
     t.closePopup();
 
-    /* Show a loading popup while downloading */
-    t.popup({
-      title: 'Loading…',
-      url: POWERUP_BASE_URL + '/loading.html',
-      height: 80
-    });
-
-    t.getRestApi()
+    
+t.getRestApi()
       .then(function (api) { return api.getToken(); })
       .then(function (token) {
         var urlWithToken = file.url +
