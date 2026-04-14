@@ -14,18 +14,14 @@
   var APP_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
   var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
 
-  /* Read auth token passed via URL params by the connector */
   var params = new URLSearchParams(window.location.search);
   var AUTH_TOKEN = params.get('auth') || '';
+  var filesRaw = params.get('files') || '';
 
   var t = TrelloPowerUp.iframe({
     appKey: APP_KEY,
     appName: 'Excel Preview'
   });
-
-  function isExcel(name) {
-    return /\.(xlsx|xls|xlsm)$/i.test(name || '');
-  }
 
   function arrayBufferToBase64(buffer) {
     var bytes = new Uint8Array(buffer);
@@ -42,13 +38,12 @@
     btn.disabled = !!disabled;
   }
 
-  function doFetch(file, btn, token) {
+  function doFetch(file, btn) {
     setStatus(btn, 'Downloading...', true);
     var url = file.url;
     url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
     var sep = url.indexOf('?') >= 0 ? '&' : '?';
-    var fetchUrl = url + sep + 'token=' + encodeURIComponent(token) + '&key=' + APP_KEY;
-
+    var fetchUrl = url + sep + 'token=' + encodeURIComponent(AUTH_TOKEN) + '&key=' + APP_KEY;
     fetch(fetchUrl, { credentials: 'omit' })
       .then(function (res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -73,48 +68,56 @@
       });
   }
 
-  function openPreview(file, btn) {
-    if (!AUTH_TOKEN) {
-      /* No token in URL — section was rendered without auth */
-      setStatus(btn, 'Reload card to authenticate', false);
-      setTimeout(function () { setStatus(btn, 'Open preview', false); }, 3000);
-      return;
-    }
-    setStatus(btn, 'Loading...', true);
-    doFetch(file, btn, AUTH_TOKEN);
+  function renderFiles(excelFiles) {
+    var container = document.getElementById('attachment-list');
+    container.innerHTML = '';
+    excelFiles.forEach(function (file) {
+      var row = document.createElement('div');
+      row.className = 'section-row';
+      var icon = document.createElement('img');
+      icon.src = POWERUP_BASE_URL + '/icons/icon.svg';
+      icon.className = 'section-icon';
+      icon.alt = '';
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'section-name';
+      nameSpan.textContent = file.name;
+      var btn = document.createElement('button');
+      btn.className = 'section-preview-btn';
+      btn.textContent = 'Open preview';
+      btn.addEventListener('click', function () {
+        if (!AUTH_TOKEN) {
+          setStatus(btn, 'No auth token', false);
+          return;
+        }
+        doFetch(file, btn);
+      });
+      row.appendChild(icon);
+      row.appendChild(nameSpan);
+      row.appendChild(btn);
+      container.appendChild(row);
+    });
+    t.sizeTo('#attachment-list').catch(function () {});
   }
 
-  t.render(function () {
-    t.card('attachments').then(function (card) {
-      var excelFiles = (card.attachments || []).filter(function (att) {
-        return isExcel(att.name);
-      });
-      var container = document.getElementById('attachment-list');
-      container.innerHTML = '';
-      excelFiles.forEach(function (file) {
-        var row = document.createElement('div');
-        row.className = 'section-row';
-        var icon = document.createElement('img');
-        icon.src = POWERUP_BASE_URL + '/icons/icon.svg';
-        icon.className = 'section-icon';
-        icon.alt = '';
-        var nameSpan = document.createElement('span');
-        nameSpan.className = 'section-name';
-        nameSpan.textContent = file.name;
-        var btn = document.createElement('button');
-        btn.className = 'section-preview-btn';
-        btn.textContent = 'Open preview';
-        btn.addEventListener('click', function () {
-          openPreview(file, btn);
+  /* Read file list from URL params (passed by connector) */
+  if (filesRaw) {
+    try {
+      var excelFiles = JSON.parse(decodeURIComponent(filesRaw));
+      renderFiles(excelFiles);
+    } catch (e) {
+      document.getElementById('attachment-list').textContent = 'Error parsing file list';
+    }
+  } else {
+    /* Fallback: fetch from card */
+    t.render(function () {
+      t.card('attachments').then(function (card) {
+        var excelFiles = (card.attachments || []).filter(function (att) {
+          return /\.(xlsx|xls|xlsm)$/i.test(att.name || '');
         });
-        row.appendChild(icon);
-        row.appendChild(nameSpan);
-        row.appendChild(btn);
-        container.appendChild(row);
+        renderFiles(excelFiles);
       });
-      t.sizeTo('#attachment-list').catch(function () {});
     });
-  });
+  }
 })();
 </script>
 </body>
