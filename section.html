@@ -8,9 +8,7 @@
   <script src="https://p.trellocdn.com/power-up.min.js"></script>
 </head>
 <body class="section-body">
-
 <div id="attachment-list"></div>
-
 <script>
 (function () {
   var t = TrelloPowerUp.iframe({
@@ -23,57 +21,28 @@
     return /\.(xlsx|xls|xlsm)$/i.test(name || '');
   }
 
-  function arrayBufferToBase64(buffer) {
-    var bytes = new Uint8Array(buffer);
-    var binary = '';
-    var chunkSize = 8192;
-    for (var i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-    }
-    return btoa(binary);
-  }
-
+  /* Open viewer modal - pass file URL and ID as params.
+     The viewer.html (a Trello modal, not an attachment-section iframe)
+     can call t.getRestApi() successfully because modals are not
+     subject to the same popup-blocker restriction as section iframes. */
   function openPreview(file, btn) {
     btn.textContent = 'Loading\u2026';
     btn.disabled = true;
 
-    /* Strategy: fetch the attachment URL with credentials:include.
-       The user is already logged into Trello in this browser,
-       so the session cookies are sent automatically — no OAuth needed. */
-    fetch(file.url, { credentials: 'include' })
-      .then(function (response) {
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        return response.arrayBuffer();
-      })
-      .then(function (buffer) {
-        var base64 = arrayBufferToBase64(buffer);
-        return t.set('card', 'private', 'previewData', {
-          base64: base64,
-          name: file.name,
-          ts: Date.now()
-        });
-      })
-      .then(function () {
-        return t.modal({
-          url: POWERUP_BASE_URL + '/viewer.html?name=' + encodeURIComponent(file.name),
-          accentColor: '#217346',
-          height: 800,
-          title: file.name
-        });
-      })
-      .catch(function (err) {
-        console.error('[ExcelPreview] openPreview error:', err);
-        t.alert({
-          message: 'Error: ' + (err.message || 'Could not load file'),
-          duration: 6
-        }).catch(function () {
-          alert('Error: ' + (err.message || 'Could not load file'));
-        });
-      })
-      .then(function () {
-        btn.textContent = 'Open preview';
-        btn.disabled = false;
-      });
+    t.modal({
+      url: POWERUP_BASE_URL + '/viewer.html'
+        + '?fileUrl=' + encodeURIComponent(file.url)
+        + '&fileId=' + encodeURIComponent(file.id || '')
+        + '&name=' + encodeURIComponent(file.name),
+      accentColor: '#217346',
+      height: 800,
+      title: file.name
+    }).catch(function (err) {
+      console.error('[ExcelPreview] modal error:', err);
+    }).then(function () {
+      btn.textContent = 'Open preview';
+      btn.disabled = false;
+    });
   }
 
   t.render(function () {
@@ -86,23 +55,19 @@
       excelFiles.forEach(function (file) {
         var row = document.createElement('div');
         row.className = 'section-row';
-
         var icon = document.createElement('img');
         icon.src = POWERUP_BASE_URL + '/icons/icon.svg';
         icon.className = 'section-icon';
         icon.alt = '';
-
         var nameSpan = document.createElement('span');
         nameSpan.className = 'section-name';
         nameSpan.textContent = file.name;
-
         var btn = document.createElement('button');
         btn.className = 'section-preview-btn';
         btn.textContent = 'Open preview';
         btn.addEventListener('click', function () {
           openPreview(file, btn);
         });
-
         row.appendChild(icon);
         row.appendChild(nameSpan);
         row.appendChild(btn);
