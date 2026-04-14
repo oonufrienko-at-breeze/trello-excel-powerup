@@ -9,17 +9,15 @@
 </head>
 <body class="section-body">
 <div id="attachment-list"></div>
-<div id="auth-notice" class="auth-notice hidden">
-  <p>⚠️ To preview Excel files, this Power-Up needs access to Trello.</p>
-  <button id="authorize-btn" class="section-preview-btn">Authorize</button>
-</div>
 <script>
 (function () {
+  var APP_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
+  var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+
   var t = TrelloPowerUp.iframe({
-    appKey: 'eaa6d0d7c57218139af1b772bbd777cb',
+    appKey: APP_KEY,
     appName: 'Excel Preview'
   });
-  var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
 
   function isExcel(name) {
     return /\.(xlsx|xls|xlsm)$/i.test(name || '');
@@ -35,70 +33,105 @@
   }
 
   function fetchAndOpenPreview(file, btn, token) {
-    var downloadUrl = file.url;
-    downloadUrl = downloadUrl.replace('https://trello.com/1/', 'https://api.trello.com/1/');
     btn.disabled = true;
     btn.textContent = 'Loading...';
-    fetch(downloadUrl, {
-      credentials: 'omit',
-      headers: {
-        'Authorization': 'OAuth oauth_consumer_key="eaa6d0d7c57218139af1b772bbd777cb", oauth_token="' + token + '"'
-      }
-    })
-    .then(function (response) {
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      return response.arrayBuffer();
-    })
-    .then(function (buffer) {
-      var key = 'excel_preview_' + file.id;
-      localStorage.setItem(key, arrayBufferToBase64(buffer));
-      t.modal({
-        url: POWERUP_BASE_URL + '/viewer.html'
-          + '?dataKey=' + encodeURIComponent(key)
-          + '&name=' + encodeURIComponent(file.name),
-        accentColor: '#217346',
-        height: 800,
-        title: file.name
-      });
-      btn.disabled = false;
-      btn.textContent = 'Open preview';
-    })
-    .catch(function (err) {
-      btn.disabled = false;
-      btn.textContent = 'Open preview';
-      console.error('[ExcelPreview]', err);
-      alert('Could not load preview: ' + (err.message || 'Unknown error'));
-    });
-  }
 
-  function openPreview(file, btn) {
-    t.getRestApi()
-      .then(function (api) {
-        return api.isAuthorized().then(function (authorized) {
-          if (!authorized) {
-            return api.authorize({ scope: 'read' });
-          }
-          return api.getToken();
-        });
+    var url = file.url;
+    // Ensure we use api.trello.com
+    url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
+    // Append token as query param as fallback
+    var sep = url.indexOf('?') >= 0 ? '&' : '?';
+    var fetchUrl = url + sep + 'token=' + token + '&key=' + APP_KEY;
+
+    fetch(fetchUrl, { credentials: 'omit' })
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.arrayBuffer();
       })
-      .then(function (token) {
-        if (token) {
-          fetchAndOpenPreview(file, btn, token);
-        } else {
-          /* If authorize() was called but returned no token yet, try again */
-          t.getRestApi()
-            .then(function (api) { return api.getToken(); })
-            .then(function (tok) {
-              if (tok) fetchAndOpenPreview(file, btn, tok);
-              else alert('Authorization failed. Please try again.');
-            });
-        }
+      .then(function (buffer) {
+        var key = 'excel_preview_' + file.id;
+        localStorage.setItem(key, arrayBufferToBase64(buffer));
+        t.modal({
+          url: POWERUP_BASE_URL + '/viewer.html'
+            + '?dataKey=' + encodeURIComponent(key)
+            + '&name=' + encodeURIComponent(file.name),
+          accentColor: '#217346',
+          height: 800,
+          title: file.name
+        });
+        btn.disabled = false;
+        btn.textContent = 'Open preview';
       })
       .catch(function (err) {
         btn.disabled = false;
         btn.textContent = 'Open preview';
-        console.error('[ExcelPreview] auth error:', err);
-        alert('Authorization error: ' + (err.message || 'Please try again.'));
+        console.error('[ExcelPreview] fetch error:', err);
+        alert('Could not load preview: ' + (err.message || 'Unknown error'));
+      });
+  }
+
+  function getTokenAndPreview(file, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+
+    // Try to get stored token first
+    t.get('member', 'private', 'token')
+      .then(function (token) {
+        if (token) {
+          fetchAndOpenPreview(file, btn, token);
+        } else {
+          // Need to authorize
+          btn.disabled = false;
+          btn.textContent = 'Open preview';
+          t.getRestApi()
+            .then(function (api) {
+              return api.authorize({ scope: 'read' });
+            })
+            .then(function () {
+              return t.getRestApi();
+            })
+            .then(function (api) {
+              return api.getToken();
+            })
+            .then(function (tok) {
+              if (tok) {
+                fetchAndOpenPreview(file, btn, tok);
+              } else {
+                alert('Could not get token. Please try again.');
+              }
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = 'Open preview';
+              alert('Authorization failed: ' + (err.message || 'Please try again.'));
+            });
+        }
+      })
+      .catch(function () {
+        // Fallback: use Rest API
+        t.getRestApi()
+          .then(function (api) {
+            return api.isAuthorized();
+          })
+          .then(function (authorized) {
+            if (authorized) {
+              return t.getRestApi().then(function (api) { return api.getToken(); });
+            } else {
+              return t.getRestApi()
+                .then(function (api) { return api.authorize({ scope: 'read' }); })
+                .then(function () { return t.getRestApi(); })
+                .then(function (api) { return api.getToken(); });
+            }
+          })
+          .then(function (tok) {
+            if (tok) fetchAndOpenPreview(file, btn, tok);
+            else alert('Could not get token.');
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = 'Open preview';
+            alert('Auth error: ' + (err.message || 'Please try again.'));
+          });
       });
   }
 
@@ -123,7 +156,7 @@
         btn.className = 'section-preview-btn';
         btn.textContent = 'Open preview';
         btn.addEventListener('click', function () {
-          openPreview(file, btn);
+          getTokenAndPreview(file, btn);
         });
         row.appendChild(icon);
         row.appendChild(nameSpan);
