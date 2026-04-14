@@ -64,7 +64,7 @@ function downloadAttachment(t, attachmentUrl, attachmentId) {
         return t.card('id').then(function (card) {
           var apiUrl = 'https://api.trello.com/1/cards/' + card.id +
             '/attachments/' + attachmentId +
-            '?key=' + token + /* Note: token here acts as key for REST */
+                      '?key=eaa6d0d7c57218139af1b772bbd777cb' + /* API key for REST */
             '&token=' + token;
 
           return fetch(apiUrl)
@@ -201,6 +201,6 @@ TrelloPowerUp.initialize({
 
 }, {
   /* Request REST API scope so t.getRestApi() works */
-  appKey: '',  /* Trello fills this automatically from Power-Up registration */
+    appKey: 'eaa6d0d7c57218139af1b772bbd777cb', /* Trello fills this automatically from Power-Up registration */
   appName: 'Excel Preview'
 });
