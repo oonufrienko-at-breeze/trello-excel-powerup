@@ -22,18 +22,35 @@
   }
 
   function openPreview(file) {
-    /* t.modal() is fire-and-forget from section iframe.
-       Do NOT chain .then() on it - the promise resolves only on close.
-       Just call it and return immediately. */
-    t.modal({
-      url: POWERUP_BASE_URL + '/viewer.html'
-        + '?fileUrl=' + encodeURIComponent(file.url)
-        + '&fileId=' + encodeURIComponent(file.id || '')
-        + '&name=' + encodeURIComponent(file.name),
-      accentColor: '#217346',
-      height: 800,
-      title: file.name
-    });
+    /* Get REST API token in section context (has full t access),
+       then pass it to viewer.html so it can fetch the attachment directly. */
+    t.getRestApi()
+      .then(function (api) { return api.getToken(); })
+      .then(function (token) {
+        t.modal({
+          url: POWERUP_BASE_URL + '/viewer.html'
+            + '?fileUrl=' + encodeURIComponent(file.url)
+            + '&fileId=' + encodeURIComponent(file.id || '')
+            + '&name=' + encodeURIComponent(file.name)
+            + '&token=' + encodeURIComponent(token),
+          accentColor: '#217346',
+          height: 800,
+          title: file.name
+        });
+      })
+      .catch(function (err) {
+        console.error('[ExcelPreview] Could not get token:', err);
+        /* Fallback: open without token (will likely fail for private attachments) */
+        t.modal({
+          url: POWERUP_BASE_URL + '/viewer.html'
+            + '?fileUrl=' + encodeURIComponent(file.url)
+            + '&fileId=' + encodeURIComponent(file.id || '')
+            + '&name=' + encodeURIComponent(file.name),
+          accentColor: '#217346',
+          height: 800,
+          title: file.name
+        });
+      });
   }
 
   t.render(function () {
