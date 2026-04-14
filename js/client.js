@@ -1,23 +1,19 @@
 /* =============================================================
    Excel Preview Power-Up — client.js
-   Hosted on GitHub Pages: https://oonufrienko-at-breeze.github.io/trello-excel-powerup/
-
-   FIX: Trello attachment URLs require authentication and block
-   cross-origin fetch from GitHub Pages (CORS + 401).
-   Solution: download the file HERE (in the Power-Up iframe context,
-   which has access to t.getRestApi() token), encode it as base64,
-   store it via t.set('card','private'), then open viewer.html which
-   reads it back via t.get() — no direct fetch from viewer needed.
+   Architecture:
+   1. On init, connector fetches the REST API token and caches it
+      in Power-Up storage (board/private/authToken) so section
+      iframes can retrieve it without calling t.getRestApi()
+   2. attachment-sections: shows Excel file list in section.html
+   3. card-buttons: fallback to open preview directly
    ============================================================= */
-
 var POWERUP_BASE_URL = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+var APP_KEY = 'eaa6d0d7c57218139af1b772bbd777cb';
 
-/* ── helpers ── */
 function isExcel(name) {
   return /\.(xlsx|xls|xlsm)$/i.test(name || '');
 }
 
-/* Convert ArrayBuffer → base64 string */
 function arrayBufferToBase64(buffer) {
   var bytes = new Uint8Array(buffer);
   var binary = '';
@@ -29,88 +25,74 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-/*
-  Download an Excel attachment using the Trello REST API token.
-  t.getRestApi() gives us a token that is accepted by the Trello
-  CDN for this board — no CORS issues because it's a same-session
-  Power-Up iframe making the request with proper credentials.
+/* Get token — first try cache, then REST API */
+function getToken(t) {
+  return t.get('board', 'private', 'authToken').then(function (cached) {
+    if (cached) return cached;
+    return t.getRestApi().then(function (api) {
+      return api.isAuthorized().then(function (authorized) {
+        if (!authorized) {
+          return api.authorize({ scope: 'read' }).then(function () {
+            return api.getToken();
+          });
+        }
+        return api.getToken();
+      });
+    }).then(function (token) {
+      if (token) {
+        // Cache for 24h
+        return t.set('board', 'private', 'authToken', token).then(function () {
+          return token;
+        });
+      }
+      return token;
+    });
+  });
+}
 
-  We try two strategies:
-  1. Fetch the attachment URL directly with Authorization header
-     (works for attachments stored on Trello's own CDN)
-  2. Fallback: use Trello REST API endpoint
-     GET /1/cards/:cardId/attachments/:attachmentId
-     to get a fresh signed URL, then fetch that
-*/
-function downloadAttachment(t, attachmentUrl, attachmentId) {
-  return t.getRestApi()
-    .then(function (api) {
-      return api.getToken();
-    })
-    .then(function (token) {
-      /* Strategy 1: direct fetch with token in query string
-         Trello CDN respects ?token= param for its own attachments */
-      var urlWithToken = attachmentUrl +
-        (attachmentUrl.indexOf('?') === -1 ? '?' : '&') +
-        'token=' + encodeURIComponent(token);
-
-      return fetch(urlWithToken, {
-        method: 'GET',
-        credentials: 'omit'
-      }).then(function (response) {
-        if (response.ok) return response.arrayBuffer();
-
-        /* Strategy 2: go through REST API to get a fresh signed URL */
-        return t.card('id').then(function (card) {
-          var apiUrl = 'https://api.trello.com/1/cards/' + card.id +
-            '/attachments/' + attachmentId +
-                      '?key=eaa6d0d7c57218139af1b772bbd777cb' + /* API key for REST */
-            '&token=' + token;
-
-          return fetch(apiUrl)
-            .then(function (r) { return r.json(); })
-            .then(function (attData) {
-              var dlUrl = (attData.url || attachmentUrl) +
-                (((attData.url || attachmentUrl).indexOf('?') === -1) ? '?' : '&') +
-                'token=' + encodeURIComponent(token);
-              return fetch(dlUrl, { credentials: 'omit' });
-            })
-            .then(function (r) {
-              if (!r.ok) throw new Error('HTTP ' + r.status);
-              return r.arrayBuffer();
-            });
+function downloadAttachment(t, file) {
+  return getToken(t).then(function (token) {
+    var url = file.url;
+    url = url.replace('https://trello.com/1/', 'https://api.trello.com/1/');
+    var sep = url.indexOf('?') >= 0 ? '&' : '?';
+    var fetchUrl = url + sep + 'token=' + encodeURIComponent(token) + '&key=' + APP_KEY;
+    return fetch(fetchUrl, { credentials: 'omit' }).then(function (res) {
+      if (res.ok) return res.arrayBuffer();
+      // Fallback: get fresh URL from REST API
+      return t.card('id').then(function (card) {
+        var apiUrl = 'https://api.trello.com/1/cards/' + card.id +
+          '/attachments/' + file.id +
+          '?key=' + APP_KEY + '&token=' + encodeURIComponent(token);
+        return fetch(apiUrl).then(function (r) { return r.json(); }).then(function (att) {
+          var dlUrl = (att.url || file.url);
+          var sep2 = dlUrl.indexOf('?') >= 0 ? '&' : '?';
+          return fetch(dlUrl + sep2 + 'token=' + encodeURIComponent(token), { credentials: 'omit' });
+        }).then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.arrayBuffer();
         });
       });
     });
+  });
 }
 
-/*
-  Store the file data and open the viewer modal.
-  We use t.set with scope 'card' / visibility 'private' so the data
-  is accessible to viewer.html (same Power-Up, same card context).
-  Key: 'previewData' — contains { base64, name, ts }
-*/
 function openPreview(t, file) {
-  /* Show loading state in a temporary popup while we fetch */
   return t.popup({
     title: 'Loading…',
     url: POWERUP_BASE_URL + '/loading.html',
     height: 80
   }).then(function () {
-    /* Small delay to let popup render */
     return new Promise(function (resolve) { setTimeout(resolve, 50); });
   }).then(function () {
-    return downloadAttachment(t, file.url, file.id);
+    return downloadAttachment(t, file);
   }).then(function (buffer) {
     var base64 = arrayBufferToBase64(buffer);
-    /* Store in card-level private storage (Power-Up scope) */
     return t.set('card', 'private', 'previewData', {
       base64: base64,
       name: file.name,
       ts: Date.now()
     });
   }).then(function () {
-    /* Close loading popup, open viewer modal */
     t.closePopup();
     return t.modal({
       url: POWERUP_BASE_URL + '/viewer.html?name=' + encodeURIComponent(file.name),
@@ -128,19 +110,14 @@ function openPreview(t, file) {
   });
 }
 
-/* ── capabilities ── */
 TrelloPowerUp.initialize({
-
-  /* ────────────────────────────────────────────────────────────
-     attachment-sections
-  ──────────────────────────────────────────────────────────── */
   'attachment-sections': function (t, options) {
     var claimed = (options.entries || []).filter(function (att) {
       return isExcel(att.name);
     });
-
     if (!claimed.length) return [];
-
+    /* Pre-cache the token so section.html can read it */
+    getToken(t).catch(function () {});
     return [{
       id: 'excel-preview-section',
       claimed: claimed,
@@ -154,17 +131,12 @@ TrelloPowerUp.initialize({
     }];
   },
 
-  /* ────────────────────────────────────────────────────────────
-     card-buttons
-  ──────────────────────────────────────────────────────────── */
   'card-buttons': function (t) {
     return t.card('attachments').then(function (card) {
       var excelFiles = (card.attachments || []).filter(function (att) {
         return isExcel(att.name);
       });
-
       if (!excelFiles.length) return [];
-
       return [{
         icon: POWERUP_BASE_URL + '/icons/icon.svg',
         text: 'Excel Preview',
@@ -172,7 +144,6 @@ TrelloPowerUp.initialize({
           if (excelFiles.length === 1) {
             return openPreview(t, excelFiles[0]);
           }
-          /* Multiple files — show picker */
           return t.popup({
             title: 'Choose Excel file',
             url: POWERUP_BASE_URL + '/picker.html',
@@ -188,9 +159,6 @@ TrelloPowerUp.initialize({
     });
   },
 
-  /* ────────────────────────────────────────────────────────────
-     show-settings
-  ──────────────────────────────────────────────────────────── */
   'show-settings': function (t) {
     return t.popup({
       title: 'Excel Preview Settings',
@@ -198,9 +166,7 @@ TrelloPowerUp.initialize({
       height: 180
     });
   }
-
 }, {
-  /* Request REST API scope so t.getRestApi() works */
-    appKey: 'eaa6d0d7c57218139af1b772bbd777cb', /* Trello fills this automatically from Power-Up registration */
+  appKey: APP_KEY,
   appName: 'Excel Preview'
 });
