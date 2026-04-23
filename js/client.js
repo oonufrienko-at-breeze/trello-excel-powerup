@@ -30,8 +30,10 @@ function getToken(t) {
 
 // ── Open modal with Excel viewer ──
 function openModal(t, att, token, cardId) {
+  // Cache-bust: append unique query so Trello iframe always fetches fresh viewer.html
+  var VIEWER_VERSION = 'v20260423c';
   return t.modal({
-    url: BASE + '/viewer.html',
+    url: BASE + '/viewer.html?v=' + VIEWER_VERSION + '&_=' + Date.now(),
     args: {
       url:    att.url,
       name:   att.name,
