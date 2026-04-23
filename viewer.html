@@ -67,6 +67,7 @@
   <div id="s-loading" class="state">
     <div class="spinner"></div>
     <div class="state-text" id="loading-msg">Завантаження файлу...</div>
+    <pre id="debug-log" style="font-size:10px;color:#6b778c;background:#f4f5f7;padding:8px;border-radius:4px;max-width:90%;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:16px;text-align:left;"></pre>
   </div>
 
   <!-- Error -->
@@ -100,6 +101,12 @@
 (function() {
   var t = TrelloPowerUp.iframe({ appKey: 'eaa6d0d7c57218139af1b772bbd777cb', appName: 'Excel Preview' });
   var wb = null;
+
+  function dbg(msg) {
+    var el = document.getElementById('debug-log');
+    if (el) el.textContent += '[' + new Date().toISOString().slice(11,23) + '] ' + msg + '\n';
+    try { console.log('[ExcelPreview]', msg); } catch(e) {}
+  }
 
   function show(id) {
     ['s-loading','s-error','s-content'].forEach(function(s) {
@@ -213,6 +220,9 @@
   }
 
   function loadFile() {
+    document.getElementById('debug-log').textContent = '';
+    dbg('loadFile() called. BUILD=2026-04-23-v2');
+
     var attUrl  = t.arg('url');
     var attName = t.arg('name') || 'Excel файл';
     var attId   = t.arg('id') || '';
@@ -220,21 +230,31 @@
     var token   = t.arg('token') || '';
     var proxy   = t.arg('proxy') || 'https://trello-excel-viewer.vercel.app';
 
+    dbg('args: name=' + attName);
+    dbg('      attId=' + attId + ' (' + attId.length + ' chars)');
+    dbg('      cardId=' + cardId + ' (' + cardId.length + ' chars)');
+    dbg('      token=' + (token ? token.slice(0,8) + '... (' + token.length + ')' : '<empty>'));
+    dbg('      url=' + (attUrl ? attUrl.slice(0, 80) + '...' : '<empty>'));
+
     document.getElementById('fname').textContent = attName;
     setLoading('Завантаження ' + attName + '...');
 
     // Prefer new attachment endpoint (server-side Trello API call)
     var fetchPromise;
     if (cardId && attId) {
+      dbg('→ using /api/attachment endpoint');
       fetchPromise = fetchAttachment(cardId, attId, token, proxy);
     } else if (attUrl) {
+      dbg('→ fallback: /api/proxy (legacy URL proxy)');
       fetchPromise = fetchViaUrlProxy(attUrl, token, proxy);
     } else {
+      dbg('✗ no cardId/attId/url available');
       setError('Не вистачає даних про файл.', 'Закрийте та відкрийте preview знову.');
       return;
     }
 
     fetchPromise.then(function(buffer) {
+      dbg('✓ fetched ' + buffer.byteLength + ' bytes');
       try {
         setLoading('Читаємо файл...');
         var data = new Uint8Array(buffer);
@@ -244,17 +264,29 @@
           setError('Файл не містить аркушів.', 'Можливо, файл пошкоджений.');
           return;
         }
+        dbg('✓ parsed, ' + wb.SheetNames.length + ' sheet(s): ' + wb.SheetNames.join(', '));
         buildTabs();
         renderSheet(wb.SheetNames[0]);
         show('s-content');
       } catch(e) {
+        dbg('✗ parse error: ' + e.message);
         setError('Не вдалося прочитати файл.', e.message);
       }
     }).catch(function(err) {
       var msg = (err && err.message) ? err.message : 'Unknown';
+      dbg('✗ fetch failed: ' + msg);
       setError('Помилка завантаження', msg);
     });
   }
+
+  // Extra safety net — if still stuck in loading state after 50s, show timeout error
+  setTimeout(function() {
+    var loading = document.getElementById('s-loading');
+    if (loading && loading.style.display !== 'none') {
+      dbg('✗ safety timeout after 50s — something hung silently');
+      setError('Таймаут (50с)', 'Запит не завершився. Перевірте консоль.');
+    }
+  }, 50000);
 
   loadFile();
 })();
