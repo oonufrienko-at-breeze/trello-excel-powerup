@@ -37,16 +37,27 @@
   }
 
   function getToken(t) {
-    return t.getRestApi().getToken().then(function(tk) {
-      if (tk) return tk;
-      return t.getRestApi().authorize({ scope: 'read' }).then(function() {
-        return t.getRestApi().getToken();
-      });
-    }).catch(function() { return ''; });
+    try {
+      return t.getRestApi().getToken().then(function(tk) {
+        if (tk) return tk;
+        return t.getRestApi().authorize({ scope: 'read' }).then(function() {
+          return t.getRestApi().getToken();
+        });
+      }).catch(function() { return ''; });
+    } catch(e) { return Promise.resolve(''); }
   }
 
-  var t = TrelloPowerUp.iframe({ appKey: 'eaa6d0d7c57218139af1b772bbd777cb', appName: 'Excel Preview' });
+  // Fetch appKey from server (kept out of committed client code for GitHub secret scanner)
+  fetch(PROXY + '/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
+    var t = TrelloPowerUp.iframe({ appKey: cfg.appKey, appName: cfg.appName || 'Excel Preview' });
+    initSection(t);
+  }).catch(function() {
+    // Fallback (still works without REST API — viewer can use fallback URL proxy)
+    var t = TrelloPowerUp.iframe();
+    initSection(t);
+  });
 
+  function initSection(t) {
   t.render(function() {
     Promise.all([
       t.card('id', 'attachments'),
@@ -93,6 +104,7 @@
       return t.sizeTo('#root');
     });
   });
+  }
 </script>
 </body>
 </html>

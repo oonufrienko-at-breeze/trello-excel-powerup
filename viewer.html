@@ -67,7 +67,6 @@
   <div id="s-loading" class="state">
     <div class="spinner"></div>
     <div class="state-text" id="loading-msg">Завантаження файлу...</div>
-    <pre id="debug-log" style="font-size:10px;color:#6b778c;background:#f4f5f7;padding:8px;border-radius:4px;max-width:90%;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:16px;text-align:left;"></pre>
   </div>
 
   <!-- Error -->
@@ -99,14 +98,8 @@
 
 <script>
 (function() {
-  var t = TrelloPowerUp.iframe({ appKey: 'eaa6d0d7c57218139af1b772bbd777cb', appName: 'Excel Preview' });
+  var t = TrelloPowerUp.iframe({ appName: 'Excel Preview' });
   var wb = null;
-
-  function dbg(msg) {
-    var el = document.getElementById('debug-log');
-    if (el) el.textContent += '[' + new Date().toISOString().slice(11,23) + '] ' + msg + '\n';
-    try { console.log('[ExcelPreview]', msg); } catch(e) {}
-  }
 
   function show(id) {
     ['s-loading','s-error','s-content'].forEach(function(s) {
@@ -155,8 +148,6 @@
   }
 
   // ── Fetch file via server-side attachment endpoint ──
-  // Server calls Trello API and returns binary in single request —
-  // avoids CORS issues and URL corruption.
   function fetchAttachment(cardId, attachmentId, token, proxy) {
     return new Promise(function(resolve, reject) {
       var url = proxy + '/api/attachment' +
@@ -164,41 +155,29 @@
                 '&attachmentId=' + encodeURIComponent(attachmentId) +
                 (token ? '&token=' + encodeURIComponent(token) : '');
 
-      dbg('fetchAttachment url length=' + url.length);
-
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
       xhr.responseType = 'arraybuffer';
       xhr.timeout = 45000;
 
-      var sendStart = Date.now();
-      xhr.onreadystatechange = function() {
-        dbg('xhr readyState=' + xhr.readyState + ' status=' + xhr.status + ' +' + (Date.now()-sendStart) + 'ms');
-      };
       xhr.onload = function() {
-        dbg('xhr onload status=' + xhr.status + ' +' + (Date.now()-sendStart) + 'ms, bytes=' + (xhr.response ? xhr.response.byteLength : 0));
-        if (xhr.status === 200) {
-          resolve(xhr.response);
-          return;
-        }
+        if (xhr.status === 200) { resolve(xhr.response); return; }
         var errMsg = 'HTTP ' + xhr.status;
         try {
-          var decoder = new TextDecoder('utf-8');
-          var body = decoder.decode(new Uint8Array(xhr.response));
+          var body = new TextDecoder('utf-8').decode(new Uint8Array(xhr.response));
           var parsed = JSON.parse(body);
           if (parsed.error) errMsg = parsed.error;
           if (parsed.details) errMsg += ' (' + parsed.details + ')';
         } catch(e) {}
         reject(new Error(errMsg));
       };
-      xhr.onerror   = function() { dbg('xhr onerror +' + (Date.now()-sendStart) + 'ms'); reject(new Error('Мережева помилка')); };
-      xhr.ontimeout = function() { dbg('xhr ontimeout'); reject(new Error('Timeout 45с')); };
+      xhr.onerror   = function() { reject(new Error('Мережева помилка')); };
+      xhr.ontimeout = function() { reject(new Error('Таймаут 45с')); };
       xhr.send();
-      dbg('xhr.send() returned, awaiting response');
     });
   }
 
-  // ── Legacy fallback: fetch via generic URL proxy (used if no attachmentId) ──
+  // ── Legacy fallback: fetch via generic URL proxy ──
   function fetchViaUrlProxy(attUrl, token, proxy) {
     return new Promise(function(resolve, reject) {
       var url = proxy + '/api/proxy?url=' + encodeURIComponent(attUrl);
@@ -213,38 +192,19 @@
         if (xhr.status === 200) { resolve(xhr.response); return; }
         var errMsg = 'HTTP ' + xhr.status;
         try {
-          var decoder = new TextDecoder('utf-8');
-          var body = decoder.decode(new Uint8Array(xhr.response));
+          var body = new TextDecoder('utf-8').decode(new Uint8Array(xhr.response));
           var parsed = JSON.parse(body);
           if (parsed.error) errMsg = parsed.error;
         } catch(e) {}
         reject(new Error(errMsg));
       };
       xhr.onerror   = function() { reject(new Error('Мережева помилка')); };
-      xhr.ontimeout = function() { reject(new Error('Timeout 45с')); };
+      xhr.ontimeout = function() { reject(new Error('Таймаут 45с')); };
       xhr.send();
     });
   }
 
-  function loadFile() {
-    document.getElementById('debug-log').textContent = '';
-    dbg('loadFile() called. BUILD=2026-04-23-v3-PINGTEST');
-
-    // Diagnostic: confirm XHR from this iframe reaches our backend at all
-    try {
-      var pingXhr = new XMLHttpRequest();
-      pingXhr.open('GET', 'https://trello-excel-viewer.vercel.app/api/attachment?cardId=abc&attachmentId=xyz&_ping=' + Date.now(), true);
-      pingXhr.timeout = 8000;
-      var pingStart = Date.now();
-      pingXhr.onload    = function() { dbg('✓ PING onload: ' + pingXhr.status + ' in ' + (Date.now()-pingStart) + 'ms'); };
-      pingXhr.onerror   = function() { dbg('✗ PING onerror after ' + (Date.now()-pingStart) + 'ms'); };
-      pingXhr.ontimeout = function() { dbg('✗ PING ontimeout after 8s'); };
-      pingXhr.send();
-      dbg('PING xhr.send() returned');
-    } catch(e) {
-      dbg('✗ PING threw: ' + e.message);
-    }
-
+  window.loadFile = function loadFile() {
     var attUrl  = t.arg('url');
     var attName = t.arg('name') || 'Excel файл';
     var attId   = t.arg('id') || '';
@@ -252,31 +212,29 @@
     var token   = t.arg('token') || '';
     var proxy   = t.arg('proxy') || 'https://trello-excel-viewer.vercel.app';
 
-    dbg('args: name=' + attName);
-    dbg('      attId=' + attId + ' (' + attId.length + ' chars)');
-    dbg('      cardId=' + cardId + ' (' + cardId.length + ' chars)');
-    dbg('      token=' + (token ? token.slice(0,8) + '... (' + token.length + ')' : '<empty>'));
-    dbg('      url=' + (attUrl ? attUrl.slice(0, 80) + '...' : '<empty>'));
-
     document.getElementById('fname').textContent = attName;
     setLoading('Завантаження ' + attName + '...');
 
-    // Prefer new attachment endpoint (server-side Trello API call)
     var fetchPromise;
     if (cardId && attId) {
-      dbg('→ using /api/attachment endpoint');
       fetchPromise = fetchAttachment(cardId, attId, token, proxy);
     } else if (attUrl) {
-      dbg('→ fallback: /api/proxy (legacy URL proxy)');
       fetchPromise = fetchViaUrlProxy(attUrl, token, proxy);
     } else {
-      dbg('✗ no cardId/attId/url available');
       setError('Не вистачає даних про файл.', 'Закрийте та відкрийте preview знову.');
       return;
     }
 
+    // Safety net: show error after 50s if still loading
+    var safetyTimer = setTimeout(function() {
+      var loading = document.getElementById('s-loading');
+      if (loading && loading.style.display !== 'none') {
+        setError('Таймаут', 'Завантаження триває надто довго. Спробуйте ще раз.');
+      }
+    }, 50000);
+
     fetchPromise.then(function(buffer) {
-      dbg('✓ fetched ' + buffer.byteLength + ' bytes');
+      clearTimeout(safetyTimer);
       try {
         setLoading('Читаємо файл...');
         var data = new Uint8Array(buffer);
@@ -286,29 +244,18 @@
           setError('Файл не містить аркушів.', 'Можливо, файл пошкоджений.');
           return;
         }
-        dbg('✓ parsed, ' + wb.SheetNames.length + ' sheet(s): ' + wb.SheetNames.join(', '));
         buildTabs();
         renderSheet(wb.SheetNames[0]);
         show('s-content');
       } catch(e) {
-        dbg('✗ parse error: ' + e.message);
         setError('Не вдалося прочитати файл.', e.message);
       }
     }).catch(function(err) {
-      var msg = (err && err.message) ? err.message : 'Unknown';
-      dbg('✗ fetch failed: ' + msg);
+      clearTimeout(safetyTimer);
+      var msg = (err && err.message) ? err.message : 'Невідома помилка';
       setError('Помилка завантаження', msg);
     });
-  }
-
-  // Extra safety net — if still stuck in loading state after 50s, show timeout error
-  setTimeout(function() {
-    var loading = document.getElementById('s-loading');
-    if (loading && loading.style.display !== 'none') {
-      dbg('✗ safety timeout after 50s — something hung silently');
-      setError('Таймаут (50с)', 'Запит не завершився. Перевірте консоль.');
-    }
-  }, 50000);
+  };
 
   loadFile();
 })();
