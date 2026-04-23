@@ -164,17 +164,23 @@
                 '&attachmentId=' + encodeURIComponent(attachmentId) +
                 (token ? '&token=' + encodeURIComponent(token) : '');
 
+      dbg('fetchAttachment url length=' + url.length);
+
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
       xhr.responseType = 'arraybuffer';
       xhr.timeout = 45000;
 
+      var sendStart = Date.now();
+      xhr.onreadystatechange = function() {
+        dbg('xhr readyState=' + xhr.readyState + ' status=' + xhr.status + ' +' + (Date.now()-sendStart) + 'ms');
+      };
       xhr.onload = function() {
+        dbg('xhr onload status=' + xhr.status + ' +' + (Date.now()-sendStart) + 'ms, bytes=' + (xhr.response ? xhr.response.byteLength : 0));
         if (xhr.status === 200) {
           resolve(xhr.response);
           return;
         }
-        // Try to decode error JSON from arraybuffer
         var errMsg = 'HTTP ' + xhr.status;
         try {
           var decoder = new TextDecoder('utf-8');
@@ -182,12 +188,13 @@
           var parsed = JSON.parse(body);
           if (parsed.error) errMsg = parsed.error;
           if (parsed.details) errMsg += ' (' + parsed.details + ')';
-        } catch(e) { /* keep HTTP status */ }
+        } catch(e) {}
         reject(new Error(errMsg));
       };
-      xhr.onerror   = function() { reject(new Error('Мережева помилка')); };
-      xhr.ontimeout = function() { reject(new Error('Timeout 45с')); };
+      xhr.onerror   = function() { dbg('xhr onerror +' + (Date.now()-sendStart) + 'ms'); reject(new Error('Мережева помилка')); };
+      xhr.ontimeout = function() { dbg('xhr ontimeout'); reject(new Error('Timeout 45с')); };
       xhr.send();
+      dbg('xhr.send() returned, awaiting response');
     });
   }
 
@@ -221,7 +228,22 @@
 
   function loadFile() {
     document.getElementById('debug-log').textContent = '';
-    dbg('loadFile() called. BUILD=2026-04-23-v2');
+    dbg('loadFile() called. BUILD=2026-04-23-v3-PINGTEST');
+
+    // Diagnostic: confirm XHR from this iframe reaches our backend at all
+    try {
+      var pingXhr = new XMLHttpRequest();
+      pingXhr.open('GET', 'https://trello-excel-viewer.vercel.app/api/attachment?cardId=abc&attachmentId=xyz&_ping=' + Date.now(), true);
+      pingXhr.timeout = 8000;
+      var pingStart = Date.now();
+      pingXhr.onload    = function() { dbg('✓ PING onload: ' + pingXhr.status + ' in ' + (Date.now()-pingStart) + 'ms'); };
+      pingXhr.onerror   = function() { dbg('✗ PING onerror after ' + (Date.now()-pingStart) + 'ms'); };
+      pingXhr.ontimeout = function() { dbg('✗ PING ontimeout after 8s'); };
+      pingXhr.send();
+      dbg('PING xhr.send() returned');
+    } catch(e) {
+      dbg('✗ PING threw: ' + e.message);
+    }
 
     var attUrl  = t.arg('url');
     var attName = t.arg('name') || 'Excel файл';
