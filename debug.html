@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Excel Preview Debug</title>
+  <style>
+    body { font-family: monospace; padding: 20px; max-width: 900px; }
+    .log { background: #f4f5f7; padding: 12px; margin: 8px 0; border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
+    .ok { background: #e3fcef; }
+    .err { background: #ffebe6; color: #c9372c; }
+    button { padding: 8px 14px; margin: 4px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>Excel Preview — Debug Tool</h2>
+  <p>Tests both proxy endpoints with the problem file.</p>
+  <p><b>Card:</b> 69de1c0560ee22d56a62995d<br><b>Attachment:</b> 69e9f32b6fbbe9cc3de2b0ee (сф-1460)</p>
+
+  <button onclick="testAttachment()">Test /api/attachment</button>
+  <button onclick="testWorking()">Test working file (test-file.xls)</button>
+
+  <div id="out"></div>
+
+  <script>
+    var PROXY = 'https://trello-excel-viewer.vercel.app';
+    var CARD = '69de1c0560ee22d56a62995d';
+    var BROKEN = '69e9f32b6fbbe9cc3de2b0ee';
+    var WORKING = '69de1c386946559860eb545d';
+
+    function log(msg, cls) {
+      var out = document.getElementById('out');
+      var d = document.createElement('div');
+      d.className = 'log ' + (cls || '');
+      d.textContent = '[' + new Date().toISOString() + '] ' + msg;
+      out.insertBefore(d, out.firstChild);
+    }
+
+    function test(attId, name) {
+      log('→ Starting: ' + name + ' (id=' + attId + ')');
+      var url = PROXY + '/api/attachment?cardId=' + CARD + '&attachmentId=' + attId;
+      var t0 = Date.now();
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'arraybuffer';
+      xhr.timeout = 45000;
+      xhr.onload = function() {
+        var dt = Date.now() - t0;
+        if (xhr.status === 200) {
+          log('✓ OK: ' + name + ' returned ' + xhr.response.byteLength + ' bytes in ' + dt + 'ms', 'ok');
+        } else {
+          var body = 'unparseable';
+          try {
+            body = new TextDecoder('utf-8').decode(new Uint8Array(xhr.response));
+          } catch(e) {}
+          log('✗ HTTP ' + xhr.status + ' in ' + dt + 'ms: ' + body, 'err');
+        }
+      };
+      xhr.onerror = function() {
+        log('✗ Network error for ' + name + ' after ' + (Date.now() - t0) + 'ms', 'err');
+      };
+      xhr.ontimeout = function() {
+        log('✗ Timeout (45s) for ' + name, 'err');
+      };
+      xhr.send();
+    }
+
+    function testAttachment() { test(BROKEN, 'broken file (сф-1460)'); }
+    function testWorking()    { test(WORKING, 'working file (test-file.xls)'); }
+
+    log('Debug tool loaded. Click buttons to run tests.');
+  </script>
+</body>
+</html>
