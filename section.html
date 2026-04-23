@@ -48,7 +48,13 @@
   var t = TrelloPowerUp.iframe({ appKey: 'eaa6d0d7c57218139af1b772bbd777cb', appName: 'Excel Preview' });
 
   t.render(function() {
-    t.card('attachments').get('attachments').filter(isExcel).then(function(files) {
+    Promise.all([
+      t.card('id', 'attachments'),
+    ]).then(function(results) {
+      var card = results[0];
+      var cardId = card.id;
+      var files = (card.attachments || []).filter(isExcel);
+
       var root = document.getElementById('root');
       root.innerHTML = '';
       if (!files.length) return;
@@ -64,7 +70,14 @@
             getToken(t).then(function(token) {
               t.modal({
                 url: BASE + '/viewer.html',
-                args: { url: file.url, name: file.name, id: file.id, token: token || '', proxy: PROXY },
+                args: {
+                  url: file.url,
+                  name: file.name,
+                  id: file.id,
+                  cardId: cardId,
+                  token: token || '',
+                  proxy: PROXY
+                },
                 fullscreen: true,
                 title: '\uD83D\uDCCA ' + file.name,
                 accentColor: '#1D6F42'

@@ -147,13 +147,76 @@
     });
   }
 
+  // ── Try to get a fresh, correct attachment URL from Trello REST API ──
+  // This avoids any stale/corrupted URL passed through modal args
+  function getFreshAttachmentUrl(cardId, attachmentId, token) {
+    return new Promise(function(resolve) {
+      if (!cardId || !attachmentId || !token) {
+        resolve(null);
+        return;
+      }
+      var apiUrl = 'https://api.trello.com/1/cards/' + encodeURIComponent(cardId) +
+                   '/attachments/' + encodeURIComponent(attachmentId) +
+                   '?key=eaa6d0d7c57218139af1b772bbd777cb&token=' + encodeURIComponent(token);
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', apiUrl, true);
+      xhr.timeout = 10000;
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          try {
+            var att = JSON.parse(xhr.responseText);
+            resolve(att && att.url ? att.url : null);
+          } catch(e) { resolve(null); }
+        } else {
+          resolve(null);
+        }
+      };
+      xhr.onerror = function() { resolve(null); };
+      xhr.ontimeout = function() { resolve(null); };
+      xhr.send();
+    });
+  }
+
+  function fetchViaProxy(attUrl, token, proxy) {
+    return new Promise(function(resolve, reject) {
+      var proxyUrl = proxy + '/api/proxy?url=' + encodeURIComponent(attUrl);
+      if (token) proxyUrl += '&token=' + encodeURIComponent(token);
+
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', proxyUrl, true);
+      xhr.responseType = 'arraybuffer';
+      xhr.timeout = 45000; // 45s timeout — prevents infinite loading
+
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          resolve(xhr.response);
+        } else {
+          // Try to read error message from response
+          var errMsg = 'HTTP ' + xhr.status;
+          try {
+            var decoder = new TextDecoder('utf-8');
+            var body = decoder.decode(xhr.response);
+            var parsed = JSON.parse(body);
+            if (parsed.error) errMsg = parsed.error;
+          } catch(e) {}
+          reject(new Error(errMsg));
+        }
+      };
+      xhr.onerror = function() { reject(new Error('Network error')); };
+      xhr.ontimeout = function() { reject(new Error('Timeout (45s)')); };
+      xhr.send();
+    });
+  }
+
   function loadFile() {
     var attUrl  = t.arg('url');
     var attName = t.arg('name') || 'Excel файл';
+    var attId   = t.arg('id') || '';
+    var cardId  = t.arg('cardId') || '';
     var token   = t.arg('token') || '';
     var proxy   = t.arg('proxy') || 'https://trello-excel-viewer.vercel.app';
 
-    if (!attUrl) {
+    if (!attUrl && !attId) {
       setError('URL файлу не знайдено.', 'Закрийте та відкрийте preview знову.');
       return;
     }
@@ -161,40 +224,39 @@
     document.getElementById('fname').textContent = attName;
     setLoading('Завантаження ' + attName + '...');
 
-    var proxyUrl = proxy + '/api/proxy?url=' + encodeURIComponent(attUrl);
-    if (token) proxyUrl += '&token=' + encodeURIComponent(token);
-
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', proxyUrl, true);
-    xhr.responseType = 'arraybuffer';
-
-    xhr.onload = function() {
-      if (xhr.status !== 200) {
-        setError('Помилка завантаження (HTTP ' + xhr.status + ').', 'Перевірте, чи файл ще доступний на картці.');
+    // Step 1: Try to get a fresh URL from Trello REST API (if we have cardId, attId, token)
+    // This avoids potential URL corruption from t.card('attachments')
+    getFreshAttachmentUrl(cardId, attId, token).then(function(freshUrl) {
+      var urlToUse = freshUrl || attUrl;
+      if (!urlToUse) {
+        setError('URL файлу недоступний.', 'Спробуйте перезавантажити Trello та відкрити знову.');
         return;
       }
-      try {
-        setLoading('Читаємо файл...');
-        var data = new Uint8Array(xhr.response);
-        document.getElementById('fsize').textContent = fmtBytes(data.byteLength);
-        wb = XLSX.read(data, { type: 'array' });
-        if (!wb.SheetNames || !wb.SheetNames.length) {
-          setError('Файл не містить аркушів.', 'Можливо, файл пошкоджений.');
-          return;
+
+      // Step 2: Fetch via proxy
+      fetchViaProxy(urlToUse, token, proxy).then(function(buffer) {
+        try {
+          setLoading('Читаємо файл...');
+          var data = new Uint8Array(buffer);
+          document.getElementById('fsize').textContent = fmtBytes(data.byteLength);
+          wb = XLSX.read(data, { type: 'array' });
+          if (!wb.SheetNames || !wb.SheetNames.length) {
+            setError('Файл не містить аркушів.', 'Можливо, файл пошкоджений.');
+            return;
+          }
+          buildTabs();
+          renderSheet(wb.SheetNames[0]);
+          show('s-content');
+        } catch(e) {
+          setError('Не вдалося прочитати файл.', e.message);
         }
-        buildTabs();
-        renderSheet(wb.SheetNames[0]);
-        show('s-content');
-      } catch(e) {
-        setError('Не вдалося прочитати файл.', e.message);
-      }
-    };
-
-    xhr.onerror = function() {
-      setError('Мережева помилка.', 'Перевірте підключення та спробуйте знову.');
-    };
-
-    xhr.send();
+      }).catch(function(err) {
+        setError(
+          'Помилка завантаження.',
+          (err && err.message ? err.message : 'Unknown') + '. Спробуйте ще раз або перезавантажте вкладення.'
+        );
+      });
+    });
   }
 
   loadFile();

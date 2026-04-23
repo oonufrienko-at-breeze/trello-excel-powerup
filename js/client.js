@@ -29,15 +29,16 @@ function getToken(t) {
 }
 
 // ── Open modal with Excel viewer ──
-function openModal(t, att, token) {
+function openModal(t, att, token, cardId) {
   return t.modal({
     url: BASE + '/viewer.html',
     args: {
-      url:   att.url,
-      name:  att.name,
-      id:    att.id,
-      token: token || '',
-      proxy: PROXY
+      url:    att.url,
+      name:   att.name,
+      id:     att.id,
+      cardId: cardId || '',
+      token:  token || '',
+      proxy:  PROXY
     },
     fullscreen: true,
     title: '\uD83D\uDCCA ' + att.name,
@@ -68,7 +69,8 @@ TrelloPowerUp.initialize({
 
   // ── Card Button: "Excel Preview" on card back header ──
   'card-buttons': function(t) {
-    return t.card('attachments').then(function(card) {
+    return t.card('id', 'attachments').then(function(card) {
+      var cardId = card.id;
       var files = (card.attachments || []).filter(isExcel);
       if (!files.length) return [];
 
@@ -79,7 +81,7 @@ TrelloPowerUp.initialize({
         callback: function(t) {
           if (files.length === 1) {
             return getToken(t).then(function(token) {
-              return openModal(t, files[0], token);
+              return openModal(t, files[0], token, cardId);
             });
           }
           // Multiple files — show picker popup
@@ -88,7 +90,7 @@ TrelloPowerUp.initialize({
               text: f.name,
               callback: function(t) {
                 return getToken(t).then(function(token) {
-                  return openModal(t, f, token);
+                  return openModal(t, f, token, cardId);
                 });
               }
             };
