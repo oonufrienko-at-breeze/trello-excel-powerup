@@ -82,7 +82,7 @@
   // be present — if /api/config failed, getRestApi() may still work if Trello
   // has cached it from elsewhere; otherwise we resolve to empty token and let the
   // viewer fall back to its URL proxy.
-  function getToken(t, force) {
+  function getToken(t) {
     return appKeyPromise.then(function(appKey) {
       // Re-init with appKey if we have one and the current iframe wasn't given one.
       // This is safe: TrelloPowerUp.iframe() returns the same singleton.
@@ -90,22 +90,12 @@
         try { TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' }); } catch(e) {}
       }
       try {
-        var api = t.getRestApi();
-        var step;
-        if (force && api.clearToken) {
-          // Примусово переавторизуємо: видаляємо закешований токен без scope
-          step = Promise.resolve(api.clearToken()).then(function() {
-            return api.authorize({ scope: 'read', expiration: 'never' });
-          }).then(function() { return api.getToken(); });
-        } else {
-          step = api.getToken().then(function(tk) {
-            if (tk) return tk;
-            return api.authorize({ scope: 'read', expiration: 'never' }).then(function() {
-              return api.getToken();
-            });
+        return t.getRestApi().getToken().then(function(tk) {
+          if (tk) return tk;
+          return t.getRestApi().authorize({ scope: 'read' }).then(function() {
+            return t.getRestApi().getToken();
           });
-        }
-        return step.catch(function() { return ''; });
+        }).catch(function() { return ''; });
       } catch(e) { return ''; }
     });
   }

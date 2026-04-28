@@ -19,27 +19,15 @@ function getToken(t) {
   try {
     return t.getRestApi().getToken().then(function(token) {
       if (token) return token;
-      return t.getRestApi().authorize({ scope: 'read', expiration: 'never' }).then(function() {
+      return t.getRestApi().authorize({ scope: 'read' }).then(function() {
         return t.getRestApi().getToken();
       });
     }).catch(function() { return ''; });
   } catch(e) { return Promise.resolve(''); }
 }
 
-// ── Force re-authorization (clear old token + ask fresh one with read scope) ──
-function reauthorize(t) {
-  try {
-    var api = t.getRestApi();
-    return Promise.resolve(api.clearToken ? api.clearToken() : null).then(function() {
-      return api.authorize({ scope: 'read', expiration: 'never' });
-    }).then(function() {
-      return api.getToken();
-    }).catch(function() { return ''; });
-  } catch(e) { return Promise.resolve(''); }
-}
-
 // ── Open modal with Excel viewer (cache-busted) ──
-var VIEWER_VERSION = 'v20260428f';
+var VIEWER_VERSION = 'v20260428e';
 function openModal(t, att, token, cardId) {
   // client.js працює в основному power-up iframe (cross-origin до Trello),
   // тому window.innerWidth = розмір iframe. Використовуємо screen.*

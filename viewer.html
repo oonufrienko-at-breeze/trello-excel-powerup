@@ -126,10 +126,7 @@
     <div class="err-icon">⚠️</div>
     <div class="err-msg" id="err-msg"></div>
     <div class="err-hint" id="err-hint"></div>
-    <div style="display:flex; gap:8px; margin-top:12px;">
-      <button class="btn" id="btn-retry">Спробувати знову</button>
-      <button class="btn" id="btn-reauth" style="display:none;">Переавторизуватись</button>
-    </div>
+    <button class="btn" onclick="loadFile()">Спробувати знову</button>
   </div>
 
   <!-- Content -->
@@ -168,37 +165,10 @@
     document.getElementById('loading-msg').textContent = msg || 'Завантаження...';
   }
 
-  function setError(msg, hint, opts) {
+  function setError(msg, hint) {
     show('s-error');
     document.getElementById('err-msg').textContent = msg || 'Помилка';
     document.getElementById('err-hint').textContent = hint || '';
-    var reauthBtn = document.getElementById('btn-reauth');
-    if (reauthBtn) reauthBtn.style.display = (opts && opts.showReauth) ? 'inline-block' : 'none';
-  }
-
-  function reauthorizeAndReload() {
-    try {
-      var api = t.getRestApi();
-      var p = api.clearToken ? Promise.resolve(api.clearToken()) : Promise.resolve();
-      setLoading('Запит авторизації...');
-      p.then(function() {
-        return api.authorize({ scope: 'read', expiration: 'never' });
-      }).then(function() {
-        return api.getToken();
-      }).then(function(newToken) {
-        if (!newToken) {
-          setError('Не вдалось авторизуватись', 'Спробуйте ще раз.', { showReauth: true });
-          return;
-        }
-        // Замінюємо токен у аргументах modal і перезавантажуємо
-        modalArgs.token = newToken;
-        loadFile();
-      }).catch(function(err) {
-        setError('Помилка авторизації', (err && err.message) || 'Невідома помилка', { showReauth: true });
-      });
-    } catch(e) {
-      setError('Помилка авторизації', e.message, { showReauth: true });
-    }
   }
 
   function fmtBytes(b) {
@@ -295,23 +265,13 @@
     });
   }
 
-  // Зберігаємо args modal у зовнішньому скоупі — щоб reauth міг підмінити token
-  var modalArgs = {
-    attUrl:  t.arg('url'),
-    attName: t.arg('name') || 'Excel файл',
-    attId:   t.arg('id') || '',
-    cardId:  t.arg('cardId') || '',
-    token:   t.arg('token') || '',
-    proxy:   t.arg('proxy') || 'https://trello-excel-viewer.vercel.app'
-  };
-
   window.loadFile = function loadFile() {
-    var attUrl  = modalArgs.attUrl;
-    var attName = modalArgs.attName;
-    var attId   = modalArgs.attId;
-    var cardId  = modalArgs.cardId;
-    var token   = modalArgs.token;
-    var proxy   = modalArgs.proxy;
+    var attUrl  = t.arg('url');
+    var attName = t.arg('name') || 'Excel файл';
+    var attId   = t.arg('id') || '';
+    var cardId  = t.arg('cardId') || '';
+    var token   = t.arg('token') || '';
+    var proxy   = t.arg('proxy') || 'https://trello-excel-viewer.vercel.app';
 
     document.getElementById('fname').textContent = attName;
     setLoading('Завантаження ' + attName + '...');
@@ -357,24 +317,9 @@
     }).catch(function(err) {
       clearTimeout(safetyTimer);
       var msg = (err && err.message) ? err.message : 'Невідома помилка';
-      var lower = String(msg).toLowerCase();
-      var isAuth = lower.indexOf('401') !== -1 ||
-                   lower.indexOf('unauthor') !== -1 ||
-                   lower.indexOf('missing scope') !== -1 ||
-                   lower.indexOf('invalid token') !== -1;
-      if (isAuth) {
-        setError('Потрібна авторизація Trello',
-                 'Токен не має потрібного доступу (read). Натисніть «Переавторизуватись».',
-                 { showReauth: true });
-      } else {
-        setError('Помилка завантаження', msg);
-      }
+      setError('Помилка завантаження', msg);
     });
   };
-
-  // Обробники кнопок помилки
-  document.getElementById('btn-retry').addEventListener('click', function() { loadFile(); });
-  document.getElementById('btn-reauth').addEventListener('click', function() { reauthorizeAndReload(); });
 
   loadFile();
 })();
