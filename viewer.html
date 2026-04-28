@@ -274,6 +274,12 @@
     var proxy   = t.arg('proxy') || 'https://trello-excel-viewer.vercel.app';
 
     document.getElementById('fname').textContent = attName;
+    // Debug: покажемо який саме токен прийшов (безпечно — тільки довжина+перші символи)
+    var tokenInfo = token 
+      ? ('len=' + token.length + ' starts="' + token.slice(0,6) + '" ends="' + token.slice(-4) + '"')
+      : 'EMPTY';
+    console.log('[Excel Preview] viewer received token:', tokenInfo);
+    console.log('[Excel Preview] viewer args:', { cardId: cardId, attId: attId, hasUrl: !!attUrl });
     setLoading('Завантаження ' + attName + '...');
 
     var fetchPromise;
@@ -317,7 +323,8 @@
     }).catch(function(err) {
       clearTimeout(safetyTimer);
       var msg = (err && err.message) ? err.message : 'Невідома помилка';
-      setError('Помилка завантаження', msg);
+      // Додаюмо debug-інфо про токен, щоб видно було без DevTools.
+      setError('Помилка завантаження', msg + ' [token: ' + tokenInfo + ']');
     });
   };
 
