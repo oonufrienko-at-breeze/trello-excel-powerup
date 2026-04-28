@@ -53,7 +53,7 @@
 <script>
   var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var PROXY = 'https://trello-excel-viewer.vercel.app';
-  var VIEWER_VERSION = 'v20260428c';
+  var VIEWER_VERSION = 'v20260428h';
   var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
   var EXCEL_SVG  = '<svg viewBox="0 0 24 24" fill="#1D6F42" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6" fill="#a5d6a7"/></svg>';
 
@@ -166,6 +166,38 @@
         row.appendChild(ico); row.appendChild(nm); row.appendChild(btn);
         root.appendChild(row);
       });
+
+      // Кнопка примусової переавторизації (для випадку 401 missing scopes —
+      // коли старий кешований токен не має доступу read).
+      var reauthRow = document.createElement('div');
+      reauthRow.style.cssText = 'margin-top:8px; font-size:12px; opacity:0.75;';
+      var reauthLink = document.createElement('a');
+      reauthLink.href = '#';
+      reauthLink.textContent = 'Не відкривається? Переавторизувати доступ Trello';
+      reauthLink.style.cssText = 'color:#0079bf; text-decoration:underline; cursor:pointer;';
+      reauthLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        appKeyPromise.then(function(appKey) {
+          if (appKey) {
+            try { TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' }); } catch(_) {}
+          }
+          try {
+            var api = t.getRestApi();
+            var clearStep = api.clearToken ? Promise.resolve(api.clearToken()) : Promise.resolve();
+            clearStep.then(function() {
+              return api.authorize({ scope: 'read', expiration: 'never' });
+            }).then(function() {
+              alert('Авторизація оновлена. Тепер спробуйте відкрити файл.');
+            }).catch(function(err) {
+              alert('Не вдалося переавторизуватись: ' + (err && err.message ? err.message : 'невідома помилка'));
+            });
+          } catch(e) {
+            alert('Помилка авторизації: ' + e.message);
+          }
+        });
+      });
+      reauthRow.appendChild(reauthLink);
+      root.appendChild(reauthRow);
 
       return t.sizeTo('#root');
     });
