@@ -53,7 +53,7 @@
 <script>
   var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var PROXY = 'https://trello-excel-viewer.vercel.app';
-  var VIEWER_VERSION = 'v20260428i';
+  var VIEWER_VERSION = 'v20260428j';
   var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
   var EXCEL_SVG  = '<svg viewBox="0 0 24 24" fill="#1D6F42" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6" fill="#a5d6a7"/></svg>';
 
@@ -72,10 +72,21 @@
   // lazily then.
   var t = TrelloPowerUp.iframe({ appName: 'Excel Preview' });
 
-  // Lazily fetched appKey, set when /api/config resolves. We retry on click if missing.
+  // Lazily fetched appKey. We also store it synchronously so click handlers can
+  // use it WITHOUT awaiting (await breaks user gesture, popup gets blocked).
+  var appKeySync = '';
   var appKeyPromise = fetch(PROXY + '/api/config')
     .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(cfg) { return cfg && cfg.appKey ? cfg.appKey : ''; })
+    .then(function(cfg) {
+      var key = cfg && cfg.appKey ? cfg.appKey : '';
+      if (key) {
+        appKeySync = key;
+        // Переініціалізуємо iframe з appKey відразу як тільки отримали —
+        // щоб getRestApi() працював синхронно в клік-хендлері (без await).
+        try { TrelloPowerUp.iframe({ appKey: key, appName: 'Excel Preview' }); } catch(_) {}
+      }
+      return key;
+    })
     .catch(function() { return ''; });
 
   // Returns a token, asking the user to authorize if needed. Needs the appKey to
@@ -177,38 +188,49 @@
       reauthLink.style.cssText = 'color:#0079bf; text-decoration:underline; cursor:pointer;';
       reauthLink.addEventListener('click', function(e) {
         e.preventDefault();
-        // Гарантовано отримуємо appKey: спочатку з promise, якщо порожній — fetch'imo ще раз.
-        appKeyPromise.then(function(appKey) {
-          if (appKey) return appKey;
-          return fetch(PROXY + '/api/config')
-            .then(function(r) { return r.ok ? r.json() : null; })
-            .then(function(cfg) { return (cfg && cfg.appKey) ? cfg.appKey : ''; })
-            .catch(function() { return ''; });
-        }).then(function(appKey) {
-          if (!appKey) {
-            alert('Не вдалося отримати appKey з ' + PROXY + '/api/config. Перевірте доступність Vercel-проксі.');
-            return;
-          }
-          // Створюємо НОВИЙ iframe-об'єкт з appKey — без цього getRestApi() кидає помилку
-          var tAuth;
-          try {
-            tAuth = TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' });
-          } catch(e) {
-            alert('Не вдалося ініціалізувати Trello iframe: ' + e.message);
-            return;
-          }
-          try {
-            var api = tAuth.getRestApi();
-            var clearStep = api.clearToken ? Promise.resolve(api.clearToken()) : Promise.resolve();
-            clearStep.then(function() {
-              return api.authorize({ scope: 'read', expiration: 'never' });
-            }).then(function() {
-              alert('Авторизація оновлена. Тепер спробуйте відкрити файл.');
-            }).catch(function(err) {
-              alert('Не вдалося переавторизуватись: ' + (err && err.message ? err.message : 'невідома помилка'));
-            });
-          } catch(e) {
-            alert('Помилка авторизації: ' + e.message);
+        // КРИТИЧНО: authorize() використовує window.open() який має бути викликаний
+        // СИНХРОННО в click-хендлері, інакше Chrome блокує popup як non-user-gesture.
+        // Не можемо await'ити appKeyPromise — використовуємо закешований appKeySync.
+        if (!appKeySync) {
+          alert('appKey ще не завантажений з ' + PROXY + '/api/config. Перезавантажте сторінку та спробуйте знову.');
+          return;
+        }
+        var tAuth;
+        try {
+          tAuth = TrelloPowerUp.iframe({ appKey: appKeySync, appName: 'Excel Preview' });
+        } catch(initErr) {
+          alert('Не вдалося ініціалізувати Trello iframe: ' + initErr.message);
+          return;
+        }
+        var api;
+        try { api = tAuth.getRestApi(); }
+        catch(apiErr) { alert('getRestApi помилка: ' + apiErr.message); return; }
+
+        // clearToken є синхронним у SDK; authorize запускаємо ВІДРАЗУ в click-gesture.
+        try { if (api.clearToken) api.clearToken(); } catch(_) {}
+
+        // Викликаємо authorize СИНХРОННО — він відкриє popup в межах user gesture.
+        var p;
+        try {
+          p = api.authorize({ scope: 'read', expiration: 'never' });
+        } catch(syncErr) {
+          alert('authorize() кинуло синхронну помилку: ' + syncErr.message);
+          return;
+        }
+        Promise.resolve(p).then(function() {
+          alert('Авторизація оновлена. Тепер спробуйте відкрити файл.');
+        }).catch(function(err) {
+          var msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : 'невідома помилка');
+          // Часто це «window could not be opened» — popup блокер браузера.
+          if (/window|popup|opened|block/i.test(msg)) {
+            alert('Браузер заблокував popup авторизації Trello.\n\n' +
+                  'Розблокуйте popup для trello.com:\n' +
+                  '1. Натисніть іконку блокованого popup у адресному рядку\n' +
+                  '2. Дозвольте popup для trello.com\n' +
+                  '3. Натисніть це посилання знову\n\n' +
+                  'Точна помилка: ' + msg);
+          } else {
+            alert('Не вдалося переавторизуватись: ' + msg);
           }
         });
       });
