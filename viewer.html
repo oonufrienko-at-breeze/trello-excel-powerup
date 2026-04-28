@@ -7,37 +7,78 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
+
+    /* Theme tokens — driven by Trello's data-color-mode attribute on <html>. */
+    html[data-color-mode="light"], html:not([data-color-mode]) {
+      --xp-bg:           #f4f5f7;
+      --xp-toolbar-bg:   #ffffff;
+      --xp-toolbar-bdr:  #dfe1e6;
+      --xp-text:         #172b4d;
+      --xp-text-subtle:  #6b778c;
+      --xp-tab-bg:       #f0f1f4;
+      --xp-tab-bdr:      #dfe1e6;
+      --xp-tab-hover:    #e4e6ea;
+      --xp-tab-text:     #5e6c84;
+      --xp-cell-bg:      #ffffff;
+      --xp-cell-bg-alt:  #fafbfc;
+      --xp-cell-bg-hov:  #e8f5e9;
+      --xp-cell-bdr:     #f0f1f4;
+      --xp-shadow:       0 1px 3px rgba(0,0,0,.08);
+    }
+    html[data-color-mode="dark"] {
+      --xp-bg:           #1d2125;
+      --xp-toolbar-bg:   #22272b;
+      --xp-toolbar-bdr:  #2c333a;
+      --xp-text:         #b6c2cf;
+      --xp-text-subtle:  #8c9bab;
+      --xp-tab-bg:       #2c333a;
+      --xp-tab-bdr:      #38414a;
+      --xp-tab-hover:    #38414a;
+      --xp-tab-text:     #b6c2cf;
+      --xp-cell-bg:      #22272b;
+      --xp-cell-bg-alt:  #1d2125;
+      --xp-cell-bg-hov:  rgba(29,111,66,0.18);
+      --xp-cell-bdr:     #2c333a;
+      --xp-shadow:       0 1px 3px rgba(0,0,0,.4);
+    }
+
     html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-      background: #f4f5f7; }
+      background: var(--xp-bg);
+      color: var(--xp-text);
+    }
 
     .app { display: flex; flex-direction: column; height: 100%; }
 
     /* Toolbar */
     .toolbar {
       display: flex; align-items: center; gap: 10px; flex-shrink: 0;
-      padding: 9px 14px; background: #fff; border-bottom: 1px solid #dfe1e6; min-height: 46px;
+      padding: 9px 14px; background: var(--xp-toolbar-bg);
+      border-bottom: 1px solid var(--xp-toolbar-bdr); min-height: 46px;
     }
     .file-info { display: flex; align-items: center; gap: 8px; margin-right: auto; min-width: 0; }
     .file-icon { width: 22px; height: 22px; flex-shrink: 0; }
-    .file-name { font-size: 14px; font-weight: 600; color: #172b4d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .file-size { font-size: 12px; color: #6b778c; flex-shrink: 0; }
+    .file-name { font-size: 14px; font-weight: 600; color: var(--xp-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-size { font-size: 12px; color: var(--xp-text-subtle); flex-shrink: 0; }
 
     /* Sheet tabs */
     .sheet-tabs { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
     .tab {
-      padding: 4px 13px; background: #f0f1f4; border: 1px solid #dfe1e6;
-      border-radius: 3px; font-size: 12px; color: #5e6c84; cursor: pointer;
+      padding: 4px 13px;
+      background: var(--xp-tab-bg);
+      border: 1px solid var(--xp-tab-bdr);
+      border-radius: 3px; font-size: 12px;
+      color: var(--xp-tab-text); cursor: pointer;
       transition: all 0.12s; white-space: nowrap;
     }
-    .tab:hover { background: #e4e6ea; }
+    .tab:hover { background: var(--xp-tab-hover); }
     .tab.active { background: #1D6F42; color: #fff; border-color: #1D6F42; }
 
     /* Table */
     .table-wrap { flex: 1; overflow: auto; padding: 12px; -webkit-overflow-scrolling: touch; }
     #sheet-output table {
-      border-collapse: collapse; background: #fff; min-width: 100%;
-      box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 13px;
+      border-collapse: collapse; background: var(--xp-cell-bg); min-width: 100%;
+      box-shadow: var(--xp-shadow); font-size: 13px;
       /* Make sure the user can select & copy text from cells */
       user-select: text; -webkit-user-select: text; -moz-user-select: text;
     }
@@ -49,23 +90,25 @@
     /* Cells: allow normal text wrapping so long invoice strings stay visible.
        Hard cap width so a single huge cell can't blow up the layout, but allow wrapping. */
     #sheet-output td {
-      padding: 6px 12px; color: #172b4d; border-bottom: 1px solid #f0f1f4;
+      padding: 6px 12px;
+      color: var(--xp-text);
+      border-bottom: 1px solid var(--xp-cell-bdr);
       white-space: pre-wrap; word-break: break-word;
       max-width: 600px; vertical-align: top;
       user-select: text; -webkit-user-select: text;
     }
-    #sheet-output tr:nth-child(even) td { background: #fafbfc; }
-    #sheet-output tr:hover td { background: #e8f5e9; }
+    #sheet-output tr:nth-child(even) td { background: var(--xp-cell-bg-alt); }
+    #sheet-output tr:hover td { background: var(--xp-cell-bg-hov); }
     #sheet-output tr:first-child:hover td { background: #1D6F42; color: #fff; }
 
     /* States */
     .state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 14px; padding: 24px; }
-    .spinner { width: 38px; height: 38px; border: 4px solid #dfe1e6; border-top-color: #1D6F42; border-radius: 50%; animation: spin .8s linear infinite; }
+    .spinner { width: 38px; height: 38px; border: 4px solid var(--xp-toolbar-bdr); border-top-color: #1D6F42; border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .state-text { font-size: 14px; color: #5e6c84; text-align: center; }
+    .state-text { font-size: 14px; color: var(--xp-text-subtle); text-align: center; }
     .err-icon { font-size: 44px; }
     .err-msg { font-size: 14px; color: #de350b; text-align: center; max-width: 500px; }
-    .err-hint { font-size: 12px; color: #6b778c; text-align: center; max-width: 500px; }
+    .err-hint { font-size: 12px; color: var(--xp-text-subtle); text-align: center; max-width: 500px; }
     .btn { padding: 7px 16px; background: #1D6F42; color: #fff; border: none; border-radius: 3px; font-size: 13px; font-weight: 600; cursor: pointer; }
     .btn:hover { background: #165a36; }
   </style>
