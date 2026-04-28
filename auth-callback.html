@@ -41,7 +41,9 @@
   // Trello передає токен у URL fragment (hash) як "#token=..."
   var hash = window.location.hash || '';
   var token = '';
-  var m = hash.match(/[#&]token=([a-f0-9]+)/i);
+  // Trello-токени бувають різних форматів: довгий hex (40+) або
+  // сучасний ATTA-префікс з буквами+цифрами (~64–80 чар)
+  var m = hash.match(/[#&]token=([A-Za-z0-9_\-]+)/);
   if (m) token = m[1];
 
   var titleEl = document.getElementById('title');
