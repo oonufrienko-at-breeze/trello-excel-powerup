@@ -39,7 +39,7 @@ function reauthorize(t) {
 }
 
 // ── Open modal with Excel viewer (cache-busted) ──
-var VIEWER_VERSION = 'v20260428g';
+var VIEWER_VERSION = 'v20260428f';
 function openModal(t, att, token, cardId) {
   // client.js працює в основному power-up iframe (cross-origin до Trello),
   // тому window.innerWidth = розмір iframe. Використовуємо screen.*
