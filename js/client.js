@@ -27,7 +27,7 @@ function getToken(t) {
 }
 
 // ── Open modal with Excel viewer (cache-busted) ──
-var VIEWER_VERSION = 'v20260428l';
+var VIEWER_VERSION = 'v20260428m';
 function openModal(t, att, token, cardId) {
   return t.modal({
     url: BASE + '/viewer.html?v=' + VIEWER_VERSION,

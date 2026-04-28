@@ -53,7 +53,7 @@
 <script>
   var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var PROXY = 'https://trello-excel-viewer.vercel.app';
-  var VIEWER_VERSION = 'v20260428l';
+  var VIEWER_VERSION = 'v20260428m';
   var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
   var EXCEL_SVG  = '<svg viewBox="0 0 24 24" fill="#1D6F42" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6" fill="#a5d6a7"/></svg>';
 
@@ -71,6 +71,7 @@
   // which we only use when the user clicks the button — we can fetch the key
   // lazily then.
   var t = TrelloPowerUp.iframe({ appName: 'Excel Preview' });
+  window.__t = t; // експонуємо для message-лістенерів, які обявляються пізніше
 
   // Lazily fetched appKey. We also store it synchronously so click handlers can
   // use it WITHOUT awaiting (await breaks user gesture, popup gets blocked).
@@ -95,30 +96,82 @@
   // viewer fall back to its URL proxy.
   // Ключ у localStorage для токена отриманого через auth-callback.html
   var TOKEN_LS_KEY = 'trelloExcelPreview_userToken';
+  var TOKEN_REGEX  = /^[A-Za-z0-9_\-]{40,}$/;
+
+  // Trello Power-Up storage — працює всередині Trello iframe незалежно
+  // від Chrome storage partitioning — бо дані живуть на боці Trello.
+  function savePuToken(t, token) {
+    try {
+      return t.set('member', 'private', 'excelPreviewToken', token);
+    } catch(_) { return Promise.resolve(); }
+  }
+  function loadPuToken(t) {
+    try {
+      return t.get('member', 'private', 'excelPreviewToken').catch(function(){ return ''; });
+    } catch(_) { return Promise.resolve(''); }
+  }
+
+  // Слухаємо postMessage від auth-callback.html (відкривається в новій вкладці
+  // з target=_blank, але якщо оригінальний click був в section iframe — ми є opener'ом).
+  var lastReceivedToken = '';
+  window.addEventListener('message', function(ev) {
+    var d = ev.data;
+    if (d && d.type === 'trelloExcelPreview:token' && d.token && TOKEN_REGEX.test(d.token)) {
+      lastReceivedToken = d.token;
+      try { localStorage.setItem(TOKEN_LS_KEY, d.token); } catch(_) {}
+      // Асинхронно зберігаємо у PU storage — вони живуть на стороні Trello,
+      // тож будуть доступні при наступному відкритті картки.
+      try { savePuToken(window.__t || null, d.token); } catch(_) {}
+    }
+  });
+
+  // BroadcastChannel — резервний канал (якщо postMessage не працює через noopener)
+  try {
+    var bc = new BroadcastChannel('trelloExcelPreview');
+    bc.addEventListener('message', function(ev) {
+      var d = ev.data;
+      if (d && d.type === 'token' && d.token && TOKEN_REGEX.test(d.token)) {
+        lastReceivedToken = d.token;
+        try { localStorage.setItem(TOKEN_LS_KEY, d.token); } catch(_) {}
+        try { savePuToken(window.__t || null, d.token); } catch(_) {}
+      }
+    });
+  } catch(_) {}
 
   function getToken(t) {
-    // 1) Спочатку перевіряємо localStorage — туди зберігається токен після reauth.
-    // Trello-токени: старі — hex 64ч, сучасні — «ATTA...» з буквами+цифрами ~76ч.
+    // 0) Токен, що тільки що прийшов через postMessage/BroadcastChannel
+    if (lastReceivedToken && TOKEN_REGEX.test(lastReceivedToken)) {
+      return Promise.resolve(lastReceivedToken);
+    }
+
+    // 1) localStorage (може не працювати через Chrome storage partitioning)
     try {
       var lsToken = localStorage.getItem(TOKEN_LS_KEY);
-      if (lsToken && /^[A-Za-z0-9_\-]{40,}$/.test(lsToken)) {
+      if (lsToken && TOKEN_REGEX.test(lsToken)) {
         return Promise.resolve(lsToken);
       }
     } catch(_) {}
 
-    // 2) Інакше — пробуємо Trello SDK (старий шлях)
-    return appKeyPromise.then(function(appKey) {
-      if (appKey) {
-        try { TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' }); } catch(e) {}
+    // 2) Trello Power-Up storage (обходить partitioning — живе на сервері Trello)
+    return loadPuToken(t).then(function(puToken) {
+      if (puToken && TOKEN_REGEX.test(puToken)) {
+        return puToken;
       }
-      try {
-        return t.getRestApi().getToken().then(function(tk) {
-          if (tk) return tk;
-          return t.getRestApi().authorize({ scope: 'read' }).then(function() {
-            return t.getRestApi().getToken();
-          });
-        }).catch(function() { return ''; });
-      } catch(e) { return ''; }
+
+      // 3) Остання спроба — Trello SDK (старий шлях)
+      return appKeyPromise.then(function(appKey) {
+        if (appKey) {
+          try { TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' }); } catch(e) {}
+        }
+        try {
+          return t.getRestApi().getToken().then(function(tk) {
+            if (tk) return tk;
+            return t.getRestApi().authorize({ scope: 'read' }).then(function() {
+              return t.getRestApi().getToken();
+            });
+          }).catch(function() { return ''; });
+        } catch(e) { return ''; }
+      });
     });
   }
 
@@ -217,7 +270,8 @@
         if (appKeySync) {
           reauthLink.href = buildAuthUrl(appKeySync);
           reauthLink.target = '_blank';
-          reauthLink.rel = 'noopener noreferrer';
+          // ВАЖЛИВО: НЕ виставляємо noopener — потрібен window.opener,
+          // щоб auth-callback міг повернути токен через postMessage.
         }
       }
       updateReauthHref();

@@ -51,21 +51,40 @@
   var hintEl  = document.getElementById('hint');
 
   if (token) {
+    var lsOk = false, lsErr = '';
     try {
-      // Зберігаємо токен у localStorage під ключем що читає section.html
+      // Зберігаємо у localStorage (працює, якщо debug-сторінку відкривають напряму).
+      // ВАЖЛИВО: всередині Trello iframe Chrome використовує partitioned storage,
+      // тож цей localStorage НЕ читатиметься з section.html (інший partition).
+      // Тому додатково передаємо токен назад через postMessage та через BroadcastChannel.
       localStorage.setItem('trelloExcelPreview_userToken', token);
       localStorage.setItem('trelloExcelPreview_userTokenAt', String(Date.now()));
-    } catch(e) {
-      titleEl.className = 'err';
-      titleEl.textContent = 'Помилка збереження токена';
-      msgEl.textContent = e.message;
-      return;
-    }
+      lsOk = true;
+    } catch(e) { lsErr = e.message; }
+
+    // 1) postMessage до opener (вкладка-відкривач — section iframe всередині Trello)
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({
+          type: 'trelloExcelPreview:token',
+          token: token,
+          at: Date.now()
+        }, '*');
+      }
+    } catch(_) {}
+
+    // 2) BroadcastChannel — працює між вкладками одного origin (для debug-сторінки)
+    try {
+      var bc = new BroadcastChannel('trelloExcelPreview');
+      bc.postMessage({ type: 'token', token: token, at: Date.now() });
+      setTimeout(function() { try { bc.close(); } catch(_){} }, 500);
+    } catch(_) {}
+
     titleEl.className = 'ok';
     titleEl.textContent = '✓ Авторизацію виконано';
     msgEl.innerHTML = 'Токен збережено. Поверніться на Trello-картку та натисніть кнопку <b>Excel Preview</b>.';
-    hintEl.textContent = 'Цю вкладку можна закрити.';
-    // Спробуємо самозакритися (працює якщо вкладка відкрита через window.open з тієї ж домени)
+    hintEl.textContent = 'Цю вкладку можна закрити.' + (lsOk ? '' : ' (LS: ' + lsErr + ')');
+    // Спробуємо самозакритися
     setTimeout(function() {
       try { window.close(); } catch(e) {}
     }, 1500);
