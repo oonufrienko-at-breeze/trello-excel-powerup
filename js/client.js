@@ -27,12 +27,10 @@ function getToken(t) {
 }
 
 // ── Open modal with Excel viewer (cache-busted) ──
-var VIEWER_VERSION = 'v20260428e';
+var VIEWER_VERSION = 'v20260428d';
 function openModal(t, att, token, cardId) {
-  // client.js працює в основному power-up iframe (cross-origin до Trello),
-  // тому window.innerWidth = розмір iframe. Використовуємо screen.*
-  var sw = (screen && screen.availWidth)  ? screen.availWidth  : 1280;
-  var sh = (screen && screen.availHeight) ? screen.availHeight : 800;
+  var vw = (typeof window !== 'undefined' && window.innerWidth)  ? window.innerWidth  : 1280;
+  var vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
   return t.modal({
     url: BASE + '/viewer.html?v=' + VIEWER_VERSION,
     args: {
@@ -45,8 +43,8 @@ function openModal(t, att, token, cardId) {
       sized:  '1'
     },
     fullscreen: false,
-    height: Math.round(sh * 0.6),
-    width:  Math.round(sw * 0.6),
+    height: Math.round(vh * 0.6),
+    width:  Math.round(vw * 0.6),
     title: '\uD83D\uDCCA ' + att.name,
     accentColor: '#1D6F42'
   });
