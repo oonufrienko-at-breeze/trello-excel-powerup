@@ -27,8 +27,10 @@ function getToken(t) {
 }
 
 // ── Open modal with Excel viewer (cache-busted) ──
-var VIEWER_VERSION = 'v20260428c';
+var VIEWER_VERSION = 'v20260428d';
 function openModal(t, att, token, cardId) {
+  var vw = (typeof window !== 'undefined' && window.innerWidth)  ? window.innerWidth  : 1280;
+  var vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
   return t.modal({
     url: BASE + '/viewer.html?v=' + VIEWER_VERSION,
     args: {
@@ -37,9 +39,12 @@ function openModal(t, att, token, cardId) {
       id:     att.id,
       cardId: cardId || '',
       token:  token || '',
-      proxy:  PROXY
+      proxy:  PROXY,
+      sized:  '1'
     },
-    fullscreen: true,
+    fullscreen: false,
+    height: Math.round(vh * 0.6),
+    width:  Math.round(vw * 0.6),
     title: '\uD83D\uDCCA ' + att.name,
     accentColor: '#1D6F42'
   });
