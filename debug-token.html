@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Debug Token — Excel Preview</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #172b4d;
+    padding: 24px;
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  h1 { color: #1D6F42; }
+  pre {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    font-size: 13px;
+  }
+  .ok { color: #1D6F42; font-weight: bold; }
+  .err { color: #d63031; font-weight: bold; }
+  button {
+    background: #1D6F42;
+    color: #fff;
+    border: 0;
+    padding: 10px 18px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin: 6px 6px 6px 0;
+  }
+  button.danger { background: #d63031; }
+  button:disabled { opacity: 0.5; }
+</style>
+</head>
+<body>
+<h1>Excel Preview — діагностика токена</h1>
+
+<h3>1. Збережений токен у localStorage</h3>
+<pre id="token-info">Завантаження...</pre>
+
+<h3>2. Тест токена через Trello API</h3>
+<button id="btn-test">Перевірити токен</button>
+<pre id="api-info">Натисніть кнопку щоб перевірити.</pre>
+
+<h3>3. Тест приватного атачмента (через наш проксі)</h3>
+<input id="card-id" placeholder="cardId (24 hex)" style="width:240px; padding:6px;">
+<input id="att-id"  placeholder="attachmentId (24 hex)" style="width:240px; padding:6px;">
+<button id="btn-attach">Перевірити атачмент</button>
+<pre id="attach-info">Введіть IDs і натисніть.</pre>
+
+<h3>4. Дії</h3>
+<button id="btn-clear" class="danger">Видалити збережений токен</button>
+<button id="btn-reauth">Переавторизуватись</button>
+
+<script>
+(function() {
+  var TOKEN_LS_KEY = 'trelloExcelPreview_userToken';
+  var PROXY = 'https://trello-excel-viewer.vercel.app';
+  var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
+
+  // 1) Show token state
+  var infoEl = document.getElementById('token-info');
+  var token = '';
+  try { token = localStorage.getItem(TOKEN_LS_KEY) || ''; } catch(e) {}
+  if (!token) {
+    infoEl.innerHTML = '<span class="err">⚠ Токена немає у localStorage.</span>\n' +
+                       'Натисніть «Переавторизуватись» нижче.';
+  } else {
+    var atTime = '';
+    try { atTime = new Date(parseInt(localStorage.getItem(TOKEN_LS_KEY + 'At'), 10)).toLocaleString('uk'); } catch(_) {}
+    var validShape = /^[A-Za-z0-9_\-]{40,}$/.test(token);
+    infoEl.innerHTML =
+      'Токен: <code>' + token.slice(0, 12) + '…' + token.slice(-8) + '</code>\n' +
+      'Довжина: ' + token.length + '\n' +
+      'Збережено: ' + (atTime || 'невідомо') + '\n' +
+      (validShape
+        ? '<span class="ok">✓ Формат правильний (alphanumeric, ≥40 символів)</span>'
+        : '<span class="err">⚠ Формат пошкоджений — ' + (token.length < 40 ? 'надто короткий' : 'містить недопустимі символи') + '. Натисніть «Видалити» нижче, потім «Переавторизуватись».</span>');
+  }
+
+  // 2) Test Trello API directly
+  document.getElementById('btn-test').addEventListener('click', function() {
+    var apiEl = document.getElementById('api-info');
+    if (!token) { apiEl.innerHTML = '<span class="err">Немає токена для тесту.</span>'; return; }
+    apiEl.textContent = 'Запит до api.trello.com/1/members/me...';
+    fetch(PROXY + '/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
+      var key = cfg.appKey;
+      return fetch('https://api.trello.com/1/members/me?key=' + encodeURIComponent(key) +
+                   '&token=' + encodeURIComponent(token)).then(function(r) {
+        return r.text().then(function(body) {
+          var pretty = '';
+          try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch(_) { pretty = body; }
+          apiEl.innerHTML = (r.ok
+            ? '<span class="ok">✓ HTTP ' + r.status + ' — токен валідний</span>\n'
+            : '<span class="err">✗ HTTP ' + r.status + ' — токен НЕ працює</span>\n') +
+            'Body: ' + pretty.slice(0, 500);
+        });
+      });
+    }).catch(function(e) {
+      apiEl.innerHTML = '<span class="err">✗ Помилка fetch: ' + e.message + '</span>';
+    });
+  });
+
+  // 3) Test attachment via proxy
+  document.getElementById('btn-attach').addEventListener('click', function() {
+    var cardId = document.getElementById('card-id').value.trim();
+    var attId  = document.getElementById('att-id').value.trim();
+    var el = document.getElementById('attach-info');
+    if (!/^[a-f0-9]{24}$/i.test(cardId) || !/^[a-f0-9]{24}$/i.test(attId)) {
+      el.innerHTML = '<span class="err">IDs мають бути 24-символьні hex.</span>';
+      return;
+    }
+    if (!token) { el.innerHTML = '<span class="err">Немає токена.</span>'; return; }
+    el.textContent = 'Запит до проксі...';
+    var url = PROXY + '/api/attachment?cardId=' + cardId + '&attachmentId=' + attId +
+              '&token=' + encodeURIComponent(token);
+    fetch(url).then(function(r) {
+      return r.text().then(function(body) {
+        var pretty = body.slice(0, 500);
+        try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch(_) {}
+        var status = r.status;
+        var contentType = r.headers.get('content-type') || '';
+        el.innerHTML = (r.ok
+          ? '<span class="ok">✓ HTTP ' + status + ' (' + contentType + ') — атачмент доступний</span>\n'
+          : '<span class="err">✗ HTTP ' + status + '</span>\n') +
+          'Body (перші 500 байт): ' + pretty.slice(0, 500);
+      });
+    }).catch(function(e) {
+      el.innerHTML = '<span class="err">✗ Помилка: ' + e.message + '</span>';
+    });
+  });
+
+  // 4) Clear token
+  document.getElementById('btn-clear').addEventListener('click', function() {
+    try { localStorage.removeItem(TOKEN_LS_KEY); localStorage.removeItem(TOKEN_LS_KEY + 'At'); } catch(_) {}
+    location.reload();
+  });
+
+  // 5) Reauth via direct Trello link
+  document.getElementById('btn-reauth').addEventListener('click', function() {
+    fetch(PROXY + '/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
+      var url = 'https://trello.com/1/authorize' +
+                '?expiration=never&scope=read&response_type=token' +
+                '&name=' + encodeURIComponent('Excel Preview') +
+                '&key=' + encodeURIComponent(cfg.appKey) +
+                '&return_url=' + encodeURIComponent(BASE + '/auth-callback.html') +
+                '&callback_method=fragment';
+      window.open(url, '_blank');
+    });
+  });
+})();
+</script>
+</body>
+</html>
