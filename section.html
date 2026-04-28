@@ -53,7 +53,7 @@
 <script>
   var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var PROXY = 'https://trello-excel-viewer.vercel.app';
-  var VIEWER_VERSION = 'v20260428b';
+  var VIEWER_VERSION = 'v20260428c';
   var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
   var EXCEL_SVG  = '<svg viewBox="0 0 24 24" fill="#1D6F42" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6" fill="#a5d6a7"/></svg>';
 
@@ -62,26 +62,45 @@
     return EXCEL_EXTS.some(function(e) { return n.endsWith(e); });
   }
 
+  // CRITICAL: TrelloPowerUp.iframe() must be called SYNCHRONOUSLY at script load,
+  // otherwise Trello's iframe handshake can race ahead and t.card() / t.render()
+  // start returning empty/null. Earlier we awaited /api/config first, which broke
+  // the section: the file row sometimes never rendered.
+  //
+  // We initialize without appKey here. appKey is only needed for getRestApi(),
+  // which we only use when the user clicks the button — we can fetch the key
+  // lazily then.
+  var t = TrelloPowerUp.iframe({ appName: 'Excel Preview' });
+
+  // Lazily fetched appKey, set when /api/config resolves. We retry on click if missing.
+  var appKeyPromise = fetch(PROXY + '/api/config')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(cfg) { return cfg && cfg.appKey ? cfg.appKey : ''; })
+    .catch(function() { return ''; });
+
+  // Returns a token, asking the user to authorize if needed. Needs the appKey to
+  // be present — if /api/config failed, getRestApi() may still work if Trello
+  // has cached it from elsewhere; otherwise we resolve to empty token and let the
+  // viewer fall back to its URL proxy.
   function getToken(t) {
-    try {
-      return t.getRestApi().getToken().then(function(tk) {
-        if (tk) return tk;
-        return t.getRestApi().authorize({ scope: 'read' }).then(function() {
-          return t.getRestApi().getToken();
-        });
-      }).catch(function() { return ''; });
-    } catch(e) { return Promise.resolve(''); }
+    return appKeyPromise.then(function(appKey) {
+      // Re-init with appKey if we have one and the current iframe wasn't given one.
+      // This is safe: TrelloPowerUp.iframe() returns the same singleton.
+      if (appKey) {
+        try { TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' }); } catch(e) {}
+      }
+      try {
+        return t.getRestApi().getToken().then(function(tk) {
+          if (tk) return tk;
+          return t.getRestApi().authorize({ scope: 'read' }).then(function() {
+            return t.getRestApi().getToken();
+          });
+        }).catch(function() { return ''; });
+      } catch(e) { return ''; }
+    });
   }
 
-  // Fetch appKey from server (kept out of committed client code for GitHub secret scanner)
-  fetch(PROXY + '/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
-    var t = TrelloPowerUp.iframe({ appKey: cfg.appKey, appName: cfg.appName || 'Excel Preview' });
-    initSection(t);
-  }).catch(function() {
-    // Fallback (still works without REST API — viewer can use fallback URL proxy)
-    var t = TrelloPowerUp.iframe();
-    initSection(t);
-  });
+  initSection(t);
 
   function initSection(t) {
   t.render(function() {
