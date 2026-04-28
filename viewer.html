@@ -153,7 +153,25 @@
 
 <script>
 (function() {
+  var PROXY_DEFAULT = 'https://trello-excel-viewer.vercel.app';
+  // Спочатку ініціалізуємо без appKey (sync) — щоб відразу мати t.arg() і не втратити handshake.
   var t = TrelloPowerUp.iframe({ appName: 'Excel Preview' });
+
+  // Але для getRestApi (reauth) потрібен appKey — підвантажуємо його ліниво з /api/config
+  // і переініціалізуємо iframe (безпечно: це singleton).
+  var appKeyPromise = (function() {
+    try {
+      var proxy = (function() { try { return t.arg('proxy') || PROXY_DEFAULT; } catch(_) { return PROXY_DEFAULT; } })();
+      return fetch(proxy + '/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
+        if (cfg && cfg.appKey) {
+          try { TrelloPowerUp.iframe({ appKey: cfg.appKey, appName: cfg.appName || 'Excel Preview' }); } catch(e) {}
+          return cfg.appKey;
+        }
+        return '';
+      }).catch(function() { return ''; });
+    } catch(e) { return Promise.resolve(''); }
+  })();
+
   var wb = null;
 
   function show(id) {
@@ -177,28 +195,35 @@
   }
 
   function reauthorizeAndReload() {
-    try {
-      var api = t.getRestApi();
-      var p = api.clearToken ? Promise.resolve(api.clearToken()) : Promise.resolve();
-      setLoading('Запит авторизації...');
-      p.then(function() {
-        return api.authorize({ scope: 'read', expiration: 'never' });
-      }).then(function() {
-        return api.getToken();
-      }).then(function(newToken) {
-        if (!newToken) {
-          setError('Не вдалось авторизуватись', 'Спробуйте ще раз.', { showReauth: true });
-          return;
-        }
-        // Замінюємо токен у аргументах modal і перезавантажуємо
-        modalArgs.token = newToken;
-        loadFile();
-      }).catch(function(err) {
-        setError('Помилка авторизації', (err && err.message) || 'Невідома помилка', { showReauth: true });
-      });
-    } catch(e) {
-      setError('Помилка авторизації', e.message, { showReauth: true });
-    }
+    setLoading('Запит авторизації...');
+    // Чекаємо на appKey — без нього getRestApi() кидає помилку
+    appKeyPromise.then(function(appKey) {
+      if (!appKey) {
+        setError('Не вдалося отримати appKey',
+                 'Перевірте доступність /api/config на Vercel.', { showReauth: true });
+        return;
+      }
+      try {
+        var api = t.getRestApi();
+        var p = api.clearToken ? Promise.resolve(api.clearToken()) : Promise.resolve();
+        p.then(function() {
+          return api.authorize({ scope: 'read', expiration: 'never' });
+        }).then(function() {
+          return api.getToken();
+        }).then(function(newToken) {
+          if (!newToken) {
+            setError('Не вдалось авторизуватись', 'Спробуйте ще раз.', { showReauth: true });
+            return;
+          }
+          modalArgs.token = newToken;
+          loadFile();
+        }).catch(function(err) {
+          setError('Помилка авторизації', (err && err.message) || 'Невідома помилка', { showReauth: true });
+        });
+      } catch(e) {
+        setError('Помилка авторизації', e.message, { showReauth: true });
+      }
+    });
   }
 
   function fmtBytes(b) {
