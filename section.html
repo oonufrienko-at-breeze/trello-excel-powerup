@@ -53,7 +53,7 @@
 <script>
   var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var PROXY = 'https://trello-excel-viewer.vercel.app';
-  var VIEWER_VERSION = 'v20260428h';
+  var VIEWER_VERSION = 'v20260428i';
   var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
   var EXCEL_SVG  = '<svg viewBox="0 0 24 24" fill="#1D6F42" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6" fill="#a5d6a7"/></svg>';
 
@@ -177,12 +177,28 @@
       reauthLink.style.cssText = 'color:#0079bf; text-decoration:underline; cursor:pointer;';
       reauthLink.addEventListener('click', function(e) {
         e.preventDefault();
+        // Гарантовано отримуємо appKey: спочатку з promise, якщо порожній — fetch'imo ще раз.
         appKeyPromise.then(function(appKey) {
-          if (appKey) {
-            try { TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' }); } catch(_) {}
+          if (appKey) return appKey;
+          return fetch(PROXY + '/api/config')
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(cfg) { return (cfg && cfg.appKey) ? cfg.appKey : ''; })
+            .catch(function() { return ''; });
+        }).then(function(appKey) {
+          if (!appKey) {
+            alert('Не вдалося отримати appKey з ' + PROXY + '/api/config. Перевірте доступність Vercel-проксі.');
+            return;
+          }
+          // Створюємо НОВИЙ iframe-об'єкт з appKey — без цього getRestApi() кидає помилку
+          var tAuth;
+          try {
+            tAuth = TrelloPowerUp.iframe({ appKey: appKey, appName: 'Excel Preview' });
+          } catch(e) {
+            alert('Не вдалося ініціалізувати Trello iframe: ' + e.message);
+            return;
           }
           try {
-            var api = t.getRestApi();
+            var api = tAuth.getRestApi();
             var clearStep = api.clearToken ? Promise.resolve(api.clearToken()) : Promise.resolve();
             clearStep.then(function() {
               return api.authorize({ scope: 'read', expiration: 'never' });
