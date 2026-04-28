@@ -34,17 +34,26 @@
     .tab.active { background: #1D6F42; color: #fff; border-color: #1D6F42; }
 
     /* Table */
-    .table-wrap { flex: 1; overflow: auto; padding: 12px; }
+    .table-wrap { flex: 1; overflow: auto; padding: 12px; -webkit-overflow-scrolling: touch; }
     #sheet-output table {
       border-collapse: collapse; background: #fff; min-width: 100%;
       box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 13px;
+      /* Make sure the user can select & copy text from cells */
+      user-select: text; -webkit-user-select: text; -moz-user-select: text;
     }
     #sheet-output tr:first-child td,
     #sheet-output th {
       background: #1D6F42; color: #fff; font-weight: 600;
       padding: 8px 12px; white-space: nowrap; position: sticky; top: 0; z-index: 2;
     }
-    #sheet-output td { padding: 6px 12px; color: #172b4d; border-bottom: 1px solid #f0f1f4; white-space: nowrap; max-width: 500px; overflow: hidden; text-overflow: ellipsis; }
+    /* Cells: allow normal text wrapping so long invoice strings stay visible.
+       Hard cap width so a single huge cell can't blow up the layout, but allow wrapping. */
+    #sheet-output td {
+      padding: 6px 12px; color: #172b4d; border-bottom: 1px solid #f0f1f4;
+      white-space: pre-wrap; word-break: break-word;
+      max-width: 600px; vertical-align: top;
+      user-select: text; -webkit-user-select: text;
+    }
     #sheet-output tr:nth-child(even) td { background: #fafbfc; }
     #sheet-output tr:hover td { background: #e8f5e9; }
     #sheet-output tr:first-child:hover td { background: #1D6F42; color: #fff; }
@@ -128,10 +137,19 @@
 
   function renderSheet(name) {
     var ws = wb.Sheets[name];
-    document.getElementById('sheet-output').innerHTML = XLSX.utils.sheet_to_html(ws, { editable: false });
+    var out = document.getElementById('sheet-output');
+    // Render in a microtask so the spinner/UI gets a chance to repaint before we block.
+    out.innerHTML = '<div style="padding:24px;color:#5e6c84;font-size:13px">Рендеримо аркуш &laquo;' + name + '&raquo;...</div>';
     document.querySelectorAll('#tabs .tab').forEach(function(tab) {
       tab.classList.toggle('active', tab.dataset.sheet === name);
     });
+    setTimeout(function() {
+      try {
+        out.innerHTML = XLSX.utils.sheet_to_html(ws, { editable: false });
+      } catch(e) {
+        out.innerHTML = '<div style="padding:24px;color:#de350b;font-size:13px">Не вдалося відрендерити аркуш: ' + (e.message || e) + '</div>';
+      }
+    }, 0);
   }
 
   function buildTabs() {
@@ -235,21 +253,24 @@
 
     fetchPromise.then(function(buffer) {
       clearTimeout(safetyTimer);
-      try {
-        setLoading('Читаємо файл...');
-        var data = new Uint8Array(buffer);
-        document.getElementById('fsize').textContent = fmtBytes(data.byteLength);
-        wb = XLSX.read(data, { type: 'array' });
-        if (!wb.SheetNames || !wb.SheetNames.length) {
-          setError('Файл не містить аркушів.', 'Можливо, файл пошкоджений.');
-          return;
+      setLoading('Читаємо файл...');
+      // Yield to the browser so the spinner repaints before XLSX.read() blocks main thread.
+      setTimeout(function() {
+        try {
+          var data = new Uint8Array(buffer);
+          document.getElementById('fsize').textContent = fmtBytes(data.byteLength);
+          wb = XLSX.read(data, { type: 'array' });
+          if (!wb.SheetNames || !wb.SheetNames.length) {
+            setError('Файл не містить аркушів.', 'Можливо, файл пошкоджений.');
+            return;
+          }
+          buildTabs();
+          show('s-content');
+          renderSheet(wb.SheetNames[0]);
+        } catch(e) {
+          setError('Не вдалося прочитати файл.', e.message);
         }
-        buildTabs();
-        renderSheet(wb.SheetNames[0]);
-        show('s-content');
-      } catch(e) {
-        setError('Не вдалося прочитати файл.', e.message);
-      }
+      }, 30);
     }).catch(function(err) {
       clearTimeout(safetyTimer);
       var msg = (err && err.message) ? err.message : 'Невідома помилка';

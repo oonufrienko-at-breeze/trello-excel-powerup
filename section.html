@@ -28,6 +28,7 @@
 <script>
   var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var PROXY = 'https://trello-excel-viewer.vercel.app';
+  var VIEWER_VERSION = 'v20260428a';
   var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
   var EXCEL_SVG  = '<svg viewBox="0 0 24 24" fill="#1D6F42" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6" fill="#a5d6a7"/></svg>';
 
@@ -78,9 +79,25 @@
 
         btn.addEventListener('click', (function(file) {
           return function() {
+            // Disable button while we wait for token; re-enable on error
+            btn.disabled = true;
+            var origText = btn.textContent;
+            btn.textContent = 'Відкриваю...';
+
+            // Hard timeout: if getToken/authorize hangs (popup blocked, user closed dialog),
+            // re-enable the button after 8s so the user knows something went wrong.
+            var hangTimer = setTimeout(function() {
+              btn.disabled = false;
+              btn.textContent = origText;
+              alert('Не вдалося авторизуватись у Trello. Перевірте, що pop-up не заблокований, і спробуйте ще раз.');
+            }, 8000);
+
             getToken(t).then(function(token) {
+              clearTimeout(hangTimer);
+              btn.disabled = false;
+              btn.textContent = origText;
               t.modal({
-                url: BASE + '/viewer.html',
+                url: BASE + '/viewer.html?v=' + VIEWER_VERSION,
                 args: {
                   url: file.url,
                   name: file.name,
@@ -93,6 +110,11 @@
                 title: '\uD83D\uDCCA ' + file.name,
                 accentColor: '#1D6F42'
               });
+            }).catch(function(err) {
+              clearTimeout(hangTimer);
+              btn.disabled = false;
+              btn.textContent = origText;
+              alert('Помилка авторизації: ' + (err && err.message ? err.message : 'невідома'));
             });
           };
         })(f));
