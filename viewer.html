@@ -209,12 +209,16 @@
   }
 
   // ── Fetch file via server-side attachment endpoint ──
-  function fetchAttachment(cardId, attachmentId, token, proxy) {
+  // We pass `fallbackUrl=<att.url>` so the server can bypass the
+  // api.trello.com metadata call entirely if the user's Power-Up token
+  // is missing or lacks the `read` scope (the "missing scopes" 401).
+  function fetchAttachment(cardId, attachmentId, token, proxy, fallbackUrl) {
     return new Promise(function(resolve, reject) {
       var url = proxy + '/api/attachment' +
                 '?cardId=' + encodeURIComponent(cardId) +
                 '&attachmentId=' + encodeURIComponent(attachmentId) +
-                (token ? '&token=' + encodeURIComponent(token) : '');
+                (token ? '&token=' + encodeURIComponent(token) : '') +
+                (fallbackUrl ? '&fallbackUrl=' + encodeURIComponent(fallbackUrl) : '');
 
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
@@ -224,13 +228,16 @@
       xhr.onload = function() {
         if (xhr.status === 200) { resolve(xhr.response); return; }
         var errMsg = 'HTTP ' + xhr.status;
+        var status = xhr.status;
         try {
           var body = new TextDecoder('utf-8').decode(new Uint8Array(xhr.response));
           var parsed = JSON.parse(body);
           if (parsed.error) errMsg = parsed.error;
           if (parsed.details) errMsg += ' (' + parsed.details + ')';
         } catch(e) {}
-        reject(new Error(errMsg));
+        var err = new Error(errMsg);
+        err.status = status;
+        reject(err);
       };
       xhr.onerror   = function() { reject(new Error('Мережева помилка')); };
       xhr.ontimeout = function() { reject(new Error('Таймаут 45с')); };
@@ -284,7 +291,21 @@
 
     var fetchPromise;
     if (cardId && attId) {
-      fetchPromise = fetchAttachment(cardId, attId, token, proxy);
+      // Primary path: server fetches metadata via api.trello.com, then
+      // streams the binary. We also pass attUrl as fallbackUrl so the
+      // server can degrade gracefully if Trello returns 401/403
+      // (e.g. token missing/expired or no `read` scope).
+      fetchPromise = fetchAttachment(cardId, attId, token, proxy, attUrl)
+        .catch(function(err) {
+          // Final safety net: if the attachment endpoint still rejected
+          // with an auth failure AND we have a direct URL, retry through
+          // the generic URL proxy.
+          if (attUrl && (err.status === 401 || err.status === 403)) {
+            console.warn('[Excel Preview] attachment endpoint 401/403, falling back to URL proxy');
+            return fetchViaUrlProxy(attUrl, token, proxy);
+          }
+          throw err;
+        });
     } else if (attUrl) {
       fetchPromise = fetchViaUrlProxy(attUrl, token, proxy);
     } else {

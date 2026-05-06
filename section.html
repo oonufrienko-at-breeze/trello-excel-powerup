@@ -53,7 +53,7 @@
 <script>
   var BASE  = 'https://oonufrienko-at-breeze.github.io/trello-excel-powerup';
   var PROXY = 'https://trello-excel-viewer.vercel.app';
-  var VIEWER_VERSION = 'v20260428o';
+  var VIEWER_VERSION = 'v20260506-fallback';
   var EXCEL_EXTS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
   var EXCEL_SVG  = '<svg viewBox="0 0 24 24" fill="#1D6F42" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6" fill="#a5d6a7"/></svg>';
 
@@ -215,11 +215,12 @@
               clearTimeout(hangTimer);
               btn.disabled = false;
               btn.textContent = origText;
-              // DEBUG: якщо токен порожній або занадто короткий — покажемо явну підказку
+              // Якщо токен відсутній або відверто короткий — все одно відкриваємо
+              // в'євер. Сервер має fallback на att.url, тому файл прочитається без
+              // токена для більшості бордів.
               if (!token || token.length < 40) {
-                var why = token ? ('Токен занадто короткий (len=' + token.length + ')') : 'Токен порожній';
-                alert('Проблема: ' + why + '. Натисніть «Переавторизувати» нижче і дозвольте доступ. Потім знову натисніть Excel Preview.');
-                return;
+                console.warn('[Excel Preview] token missing or short, opening viewer in fallback mode');
+                token = '';
               }
               t.modal({
                 url: BASE + '/viewer.html?v=' + VIEWER_VERSION,
